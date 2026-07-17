@@ -1,0 +1,36 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "hellodev-core"
+version = "0.11.0"
+description = "Standalone, adapter-oriented development workflow CLI"
+readme = "README.md"
+requires-python = ">=3.10"
+license = {text = "MIT"}
+authors = [{name = "fate-forever"}]
+classifiers = [
+  "Programming Language :: Python :: 3",
+  "Programming Language :: Python :: 3 :: Only",
+  "Programming Language :: Python :: 3.10",
+  "Programming Language :: Python :: 3.11",
+  "Programming Language :: Python :: 3.12",
+]
+
+[project.urls]
+Homepage = "https://github.com/fate-forever/hellodev"
+Repository = "https://github.com/fate-forever/hellodev.git"
+Issues = "https://github.com/fate-forever/hellodev/issues"
+
+[project.scripts]
+hellodev = "hellodev.cli:main"
+
+[tool.setuptools]
+package-dir = {"" = "src"}
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.setuptools.package-data]
+hellodev = ["dashboard_assets/*.html", "dashboard_assets/*.css", "dashboard_assets/*.js"]

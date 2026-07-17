@@ -1,0 +1,101 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>HelloDev Control Center</title>
+  <link rel="stylesheet" href="/styles.css">
+</head>
+<body>
+  <header class="topbar">
+    <div><span class="eyebrow">HELLODEV 0.11.0</span><h1>Control Center</h1></div>
+    <div class="health"><span id="health-dot"></span><span id="health-text">连接中</span></div>
+  </header>
+  <nav aria-label="主导航" id="tabs">
+    <button class="active" data-tab="overview">总览</button>
+    <button data-tab="continuity">连续性</button>
+    <button data-tab="optimization">优化</button>
+    <button data-tab="advanced">Host</button>
+    <button data-tab="workflow">工作流</button>
+    <button data-tab="knowledge">知识</button>
+    <button data-tab="activity">审计</button>
+  </nav>
+  <main>
+    <section id="overview" class="panel active">
+      <div class="notice"><strong>只读控制中心</strong><span>页面只读取项目本地投影；所有命令仅复制到剪贴板，不会执行 Trellis、Nocturne 或其他 adapter。</span></div>
+      <div class="metrics">
+        <article><span>阶段</span><strong id="phase">—</strong></article>
+        <article><span>任务</span><strong id="tasks">—</strong></article>
+        <article><span>能力缓存</span><strong id="cache">—</strong></article>
+        <article><span>Token</span><strong id="tokens">—</strong></article>
+      </div>
+      <div class="split">
+        <section><h2>下一步</h2><div id="next-action" class="stack"></div></section>
+        <section><h2>适配器</h2><div id="adapters" class="stack"></div></section>
+      </div>
+      <section class="block"><h2>快捷命令</h2><div id="actions" class="stack command-grid"></div></section>
+    </section>
+
+    <section id="continuity" class="panel">
+      <div class="split">
+        <section><h2>当前 WorkItem</h2><div id="work-item" class="stack"></div></section>
+        <section><h2>Gate 投影</h2><div id="gate" class="stack"></div></section>
+      </div>
+      <section class="block"><h2>未完成 Saga</h2><div id="sagas" class="stack"></div></section>
+    </section>
+
+    <section id="optimization" class="panel">
+      <div class="metrics optimization-metrics">
+        <article><span>DecisionTrace</span><strong id="optimization-traces">—</strong></article>
+        <article><span>ReflectionReport</span><strong id="optimization-reports">—</strong></article>
+        <article><span>EvolutionProposal</span><strong id="optimization-proposals">—</strong></article>
+        <article><span>过期 Proposal</span><strong id="optimization-stale">—</strong></article>
+      </div>
+      <div class="split">
+        <section><h2>Optimize 状态</h2><div id="optimization-status" class="stack"></div></section>
+        <section><h2>最近 Usage Envelope</h2><div id="optimization-usage" class="stack"></div></section>
+      </div>
+      <div class="split block">
+        <section><h2>Reflection 摘要</h2><div id="optimization-reflection" class="stack"></div></section>
+        <section><h2>建议命令</h2><div id="optimization-action" class="stack"></div></section>
+      </div>
+    </section>
+
+    <section id="advanced" class="panel">
+      <div class="metrics advanced-metrics">
+        <article><span>Host completions</span><strong id="host-completions">—</strong></article>
+        <article><span>Late</span><strong id="host-late">—</strong></article>
+        <article><span>Policy events</span><strong id="policy-events">—</strong></article>
+        <article><span>Drift findings</span><strong id="drift-findings">—</strong></article>
+      </div>
+      <div class="split">
+        <section><h2>Host Bridge</h2><div id="host-status" class="stack"></div></section>
+        <section><h2>Policy Ledger</h2><div id="policy-status" class="stack"></div></section>
+      </div>
+      <div class="split block">
+        <section><h2>Drift</h2><div id="drift-status" class="stack"></div></section>
+        <section><h2>只读命令</h2><div id="advanced-actions" class="stack"></div></section>
+      </div>
+      <section class="block"><h2>UI 权限边界</h2><div id="advanced-capabilities" class="stack"></div></section>
+    </section>
+
+    <section id="workflow" class="panel">
+      <h2>生命周期</h2><div id="timeline" class="timeline"></div>
+      <h2>上下文缓存</h2><div id="briefs" class="stack"></div>
+    </section>
+
+    <section id="knowledge" class="panel">
+      <h2>LessonProposal</h2>
+      <p class="muted">仅显示 proposal 元数据与摘要哈希，不显示 lesson 原文，也不会自动读取长期记忆。</p>
+      <div id="lessons" class="stack"></div>
+      <section class="block"><h2>Recall 模板</h2><div id="recall-template" class="stack"></div></section>
+    </section>
+
+    <section id="activity" class="panel">
+      <h2>隐私安全的审计摘要</h2><div id="audit" class="stack"></div>
+    </section>
+  </main>
+  <div id="toast" role="status" aria-live="polite"></div>
+  <script src="/app.js"></script>
+</body>
+</html>
