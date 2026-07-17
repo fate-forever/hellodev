@@ -11,6 +11,28 @@ from .project import ProjectError, ProjectPaths, load_config, utc_now, write_jso
 from .state_lock import locked_state
 
 
+USAGE_SCHEMA_VERSION = 1
+RUNTIME_USAGE_SCHEMA_VERSION = 1
+MAX_USAGE_TOKENS = 10**15
+USAGE_SOURCE_CONTRACTS = {
+    ("operator-report", "asserted"): {
+        "accuracy": "externally-reported; not host-verified",
+        "measurement": "reported",
+        "attestation": "none",
+    },
+    ("codex-runtime", "runtime-observed"): {
+        "accuracy": "codex-runtime-completed-turn; exact; attestation=none; not estimated",
+        "measurement": "exact",
+        "attestation": "none",
+    },
+    ("codex-runtime-import", "asserted-runtime"): {
+        "accuracy": "caller-selected Codex runtime metadata; exact file delta; attestation=none",
+        "measurement": "exact",
+        "attestation": "none",
+    },
+}
+
+
 def _nonblank(value: Any) -> bool:
     return isinstance(value, str) and bool(value.strip()) and value == value.strip()
 
@@ -67,57 +89,203 @@ def audit_delegation(payload: Any) -> dict[str, Any]:
     return result
 
 
-def _usage_store(root: Path) -> dict[str, Any]:
-    load_config(root)
-    path = ProjectPaths(root).usage_file
+def _sha256_text(value: str) -> str:
+    return hashlib.sha256(value.encode("utf-8")).hexdigest()
+
+
+def _valid_digest(value: Any) -> bool:
+    return isinstance(value, str) and len(value) == 64 and all(char in "0123456789abcdef" for char in value)
+
+
+def _validate_legacy_usage_record(record: Any) -> dict[str, Any]:
+    fields = {"id", "recordedAt", "totalTokens", "subagentTokens", "subagentCount", "source", "scope", "accuracy"}
+    if not isinstance(record, dict) or set(record) != fields:
+        raise ProjectError("invalid legacy HelloDev usage record fields")
+    identifier = record.get("id")
+    if not isinstance(identifier, str) or not identifier.startswith("usage-") or not identifier[6:].isdigit():
+        raise ProjectError("invalid legacy HelloDev usage record id")
+    counts = (record.get("totalTokens"), record.get("subagentTokens"), record.get("subagentCount"))
+    if any(type(value) is not int or value < 0 for value in counts) or counts[1] > counts[0]:
+        raise ProjectError("invalid legacy HelloDev usage counts")
+    if not _nonblank(record.get("recordedAt")) or not _nonblank(record.get("source")) or not _nonblank(record.get("scope")):
+        raise ProjectError("invalid legacy HelloDev usage labels")
+    if record.get("accuracy") != "reported":
+        raise ProjectError("invalid legacy HelloDev usage accuracy")
+    return record
+
+
+def _normalize_legacy_usage_record(record: Any) -> dict[str, Any]:
+    value = _validate_legacy_usage_record(record)
+    normalized = {
+        "id": value["id"],
+        "recordedAt": value["recordedAt"],
+        "completedAt": value["recordedAt"],
+        "totalTokens": value["totalTokens"],
+        "inputTokens": None,
+        "cachedInputTokens": None,
+        "outputTokens": None,
+        "reasoningOutputTokens": None,
+        "subagentTokens": value["subagentTokens"],
+        "subagentCount": value["subagentCount"],
+        "sourceKind": "operator-report",
+        "sourceTrust": "asserted",
+        **USAGE_SOURCE_CONTRACTS[("operator-report", "asserted")],
+        "sourceSha256": _sha256_text(value["source"]),
+        "scopeSha256": _sha256_text(value["scope"]),
+        "receiptSha256": "",
+    }
+    normalized["receiptSha256"] = _usage_receipt_digest(normalized)
+    return normalized
+
+
+def _read_json_store(path: Path, label: str) -> dict[str, Any] | None:
     if not path.exists():
-        return {"schemaVersion": 1, "records": []}
+        return None
     if path.is_symlink():
-        raise ProjectError("refusing symlinked HelloDev usage store")
+        raise ProjectError(f"refusing symlinked HelloDev {label} store")
     try:
         value = json.loads(path.read_text(encoding="utf-8"))
     except (OSError, json.JSONDecodeError) as error:
-        raise ProjectError(f"invalid HelloDev usage store: {error}") from error
-    if not isinstance(value, dict) or set(value) != {"schemaVersion", "records"}:
+        raise ProjectError(f"invalid HelloDev {label} store: {error}") from error
+    if not isinstance(value, dict) or set(value) != {"schemaVersion", "records"} or not isinstance(value.get("records"), list):
+        raise ProjectError(f"invalid HelloDev {label} store schema")
+    return value
+
+
+def _legacy_usage_store(root: Path) -> dict[str, Any]:
+    load_config(root)
+    value = _read_json_store(ProjectPaths(root).usage_file, "usage")
+    if value is None:
+        return {"schemaVersion": USAGE_SCHEMA_VERSION, "records": []}
+    if value.get("schemaVersion") != USAGE_SCHEMA_VERSION:
         raise ProjectError("invalid HelloDev usage store schema")
-    if value.get("schemaVersion") != 1 or not isinstance(value.get("records"), list):
-        raise ProjectError("invalid HelloDev usage store schema")
-    for record in value["records"]:
-        _validate_usage_record(record)
-    identifiers = [record["id"] for record in value["records"]]
+    records = [_validate_legacy_usage_record(record) for record in value["records"]]
+    identifiers = [record["id"] for record in records]
     if len(identifiers) != len(set(identifiers)):
         raise ProjectError("duplicate HelloDev usage record id")
-    return value
+    return {"schemaVersion": USAGE_SCHEMA_VERSION, "records": records}
+
+
+def _runtime_usage_store(root: Path) -> dict[str, Any]:
+    load_config(root)
+    value = _read_json_store(ProjectPaths(root).runtime_usage_file, "runtime usage receipt")
+    if value is None:
+        return {"schemaVersion": RUNTIME_USAGE_SCHEMA_VERSION, "records": []}
+    if value.get("schemaVersion") != RUNTIME_USAGE_SCHEMA_VERSION:
+        raise ProjectError("invalid HelloDev runtime usage receipt store schema")
+    records = [_validate_usage_record(record) for record in value["records"]]
+    if any(record["sourceTrust"] not in {"runtime-observed", "asserted-runtime"} for record in records):
+        raise ProjectError("invalid HelloDev runtime usage receipt source")
+    identifiers = [record["id"] for record in records]
+    receipts = [record["receiptSha256"] for record in records]
+    scopes = [(record["sourceKind"], record["scopeSha256"]) for record in records]
+    if len(identifiers) != len(set(identifiers)) or len(receipts) != len(set(receipts)) or len(scopes) != len(set(scopes)):
+        raise ProjectError("duplicate HelloDev runtime usage receipt")
+    return {"schemaVersion": RUNTIME_USAGE_SCHEMA_VERSION, "records": records}
+
+
+def _usage_store(root: Path) -> dict[str, Any]:
+    manual = [_normalize_legacy_usage_record(record) for record in _legacy_usage_store(root)["records"]]
+    runtime = _runtime_usage_store(root)["records"]
+    records = sorted([*manual, *runtime], key=lambda item: (item["completedAt"], item["recordedAt"], item["id"]))
+    identifiers = [record["id"] for record in records]
+    if len(identifiers) != len(set(identifiers)):
+        raise ProjectError("duplicate HelloDev usage record id")
+    return {"schemaVersion": 2, "records": records}
+
+
+def _usage_receipt_digest(record: dict[str, Any]) -> str:
+    if record["sourceKind"] == "operator-report":
+        payload = {
+            "kind": "operator-report",
+            "recordedAt": record["recordedAt"],
+            "totalTokens": record["totalTokens"],
+            "subagentTokens": record["subagentTokens"],
+            "subagentCount": record["subagentCount"],
+            "sourceSha256": record["sourceSha256"],
+            "scopeSha256": record["scopeSha256"],
+        }
+    else:
+        payload = {
+            "kind": record["sourceKind"],
+            "completedAt": record["completedAt"],
+            "totalTokens": record["totalTokens"],
+            "inputTokens": record["inputTokens"],
+            "cachedInputTokens": record["cachedInputTokens"],
+            "outputTokens": record["outputTokens"],
+            "reasoningOutputTokens": record["reasoningOutputTokens"],
+            "subagentTokens": record["subagentTokens"],
+            "subagentCount": record["subagentCount"],
+            "sourceTrust": record["sourceTrust"],
+            "sourceSha256": record["sourceSha256"],
+            "scopeSha256": record["scopeSha256"],
+        }
+    return hashlib.sha256(json.dumps(payload, sort_keys=True, separators=(",", ":")).encode("utf-8")).hexdigest()
 
 
 def _validate_usage_record(record: Any) -> dict[str, Any]:
     fields = {
         "id",
         "recordedAt",
+        "completedAt",
         "totalTokens",
+        "inputTokens",
+        "cachedInputTokens",
+        "outputTokens",
+        "reasoningOutputTokens",
         "subagentTokens",
         "subagentCount",
-        "source",
-        "scope",
+        "sourceKind",
+        "sourceTrust",
         "accuracy",
+        "measurement",
+        "attestation",
+        "sourceSha256",
+        "scopeSha256",
+        "receiptSha256",
     }
     if not isinstance(record, dict) or set(record) != fields:
         raise ProjectError("invalid HelloDev usage record fields")
     identifier = record.get("id")
-    if not isinstance(identifier, str) or not identifier.startswith("usage-") or not identifier[6:].isdigit():
+    valid_identifier = isinstance(identifier, str) and (
+        (identifier.startswith("usage-") and identifier[6:].isdigit())
+        or (identifier.startswith("runtime-usage-") and identifier[14:].isdigit())
+    )
+    if not valid_identifier:
         raise ProjectError("invalid HelloDev usage record id")
     counts = (record.get("totalTokens"), record.get("subagentTokens"), record.get("subagentCount"))
-    if any(type(value) is not int or value < 0 for value in counts) or counts[1] > counts[0]:
+    if any(type(value) is not int or value < 0 for value in counts) or counts[0] > MAX_USAGE_TOKENS or counts[1] > counts[0] or counts[2] > 128:
         raise ProjectError("invalid HelloDev usage counts")
-    if not _nonblank(record.get("recordedAt")) or not _nonblank(record.get("source")) or not _nonblank(record.get("scope")):
+    if not _nonblank(record.get("recordedAt")) or not _nonblank(record.get("completedAt")):
         raise ProjectError("invalid HelloDev usage record labels")
-    if record.get("accuracy") != "reported":
-        raise ProjectError("invalid HelloDev usage accuracy")
+    source_key = (record.get("sourceKind"), record.get("sourceTrust"))
+    contract = USAGE_SOURCE_CONTRACTS.get(source_key)
+    if contract is None or any(record.get(field) != contract[field] for field in ("accuracy", "measurement", "attestation")):
+        raise ProjectError("invalid HelloDev usage source classification")
+    breakdown = tuple(record.get(field) for field in ("inputTokens", "cachedInputTokens", "outputTokens", "reasoningOutputTokens"))
+    if source_key == ("operator-report", "asserted"):
+        if any(value is not None for value in breakdown):
+            raise ProjectError("operator-reported usage cannot claim a runtime breakdown")
+    else:
+        if any(type(value) is not int or value < 0 or value > MAX_USAGE_TOKENS for value in breakdown):
+            raise ProjectError("invalid HelloDev runtime usage breakdown")
+        input_tokens, cached_tokens, output_tokens, reasoning_tokens = breakdown
+        if cached_tokens > input_tokens or reasoning_tokens > output_tokens or input_tokens + output_tokens != record["totalTokens"]:
+            raise ProjectError("inconsistent HelloDev runtime usage breakdown")
+    if not all(_valid_digest(record.get(field)) for field in ("sourceSha256", "scopeSha256", "receiptSha256")):
+        raise ProjectError("invalid HelloDev usage digest")
+    if record["receiptSha256"] != _usage_receipt_digest(record):
+        raise ProjectError("HelloDev usage receipt digest mismatch")
     return record
 
 
 def list_usage_records(root: Path) -> list[dict[str, Any]]:
     return list(_usage_store(root)["records"])
+
+
+def list_runtime_usage_records(root: Path) -> list[dict[str, Any]]:
+    """Return validated additive runtime receipts in stable insertion order."""
+    return list(_runtime_usage_store(root)["records"])
 
 
 def get_usage_record(root: Path, usage_id: str) -> dict[str, Any]:
@@ -144,11 +312,34 @@ def usage_projection(record: dict[str, Any]) -> dict[str, Any]:
         "rootTokens": record["totalTokens"] - record["subagentTokens"],
         "subagentTokens": record["subagentTokens"],
         "subagentCount": record["subagentCount"],
-        "sourceKind": "operator-report",
-        "sourceTrust": "asserted",
-        "accuracy": "externally-reported; not host-verified",
-        "sourceSha256": hashlib.sha256(record["source"].encode("utf-8")).hexdigest(),
-        "scopeSha256": hashlib.sha256(record["scope"].encode("utf-8")).hexdigest(),
+        "sourceKind": record["sourceKind"],
+        "sourceTrust": record["sourceTrust"],
+        "accuracy": record["accuracy"],
+        "sourceSha256": record["sourceSha256"],
+        "scopeSha256": record["scopeSha256"],
+    }
+
+
+def usage_breakdown_projection(record: dict[str, Any]) -> dict[str, Any] | None:
+    _validate_usage_record(record)
+    if record["inputTokens"] is None:
+        return None
+    return {
+        "inputTokens": record["inputTokens"],
+        "cachedInputTokens": record["cachedInputTokens"],
+        "outputTokens": record["outputTokens"],
+        "reasoningOutputTokens": record["reasoningOutputTokens"],
+    }
+
+
+def usage_public_projection(record: dict[str, Any]) -> dict[str, Any]:
+    value = usage_projection(record)
+    return {
+        **value,
+        "completedAt": record["completedAt"],
+        "measurement": record["measurement"],
+        "attestation": record["attestation"],
+        "breakdown": usage_breakdown_projection(record),
     }
 
 
@@ -160,15 +351,78 @@ def record_usage(root: Path, total: int, subagent: int, subagents: int, source: 
     if len(source) > 128 or len(scope) > 256 or "\n" in source or "\r" in source or "\n" in scope or "\r" in scope:
         raise ProjectError("usage source and scope must be bounded single-line labels")
     with locked_state(root, "usage"):
-        store = _usage_store(root)
+        store = _legacy_usage_store(root)
         if len(store["records"]) >= 100_000:
             raise ProjectError("HelloDev usage store record limit reached")
         highest = max((int(item["id"].removeprefix("usage-")) for item in store["records"]), default=0)
-        record = {"id": f"usage-{highest + 1:04d}", "recordedAt": utc_now(), "totalTokens": total, "subagentTokens": subagent, "subagentCount": subagents, "source": source, "scope": scope, "accuracy": "reported"}
-        _validate_usage_record(record)
-        store["records"].append(record)
+        recorded_at = utc_now()
+        legacy_record = {
+            "id": f"usage-{highest + 1:04d}",
+            "recordedAt": recorded_at,
+            "totalTokens": total,
+            "subagentTokens": subagent,
+            "subagentCount": subagents,
+            "source": source,
+            "scope": scope,
+            "accuracy": "reported",
+        }
+        store["records"].append(legacy_record)
         write_json(ProjectPaths(root).usage_file, store)
-    return record
+    return legacy_record
+
+
+def record_runtime_usage(
+    root: Path,
+    *,
+    input_tokens: int,
+    cached_input_tokens: int,
+    output_tokens: int,
+    reasoning_output_tokens: int,
+    subagent_tokens: int,
+    subagent_count: int,
+    completed_at: str,
+    source_sha256: str,
+    scope_sha256: str,
+    source_kind: str,
+    source_trust: str,
+) -> dict[str, Any]:
+    total = input_tokens + output_tokens
+    candidate = {
+        "id": "runtime-usage-0000",
+        "recordedAt": utc_now(),
+        "completedAt": completed_at,
+        "totalTokens": total,
+        "inputTokens": input_tokens,
+        "cachedInputTokens": cached_input_tokens,
+        "outputTokens": output_tokens,
+        "reasoningOutputTokens": reasoning_output_tokens,
+        "subagentTokens": subagent_tokens,
+        "subagentCount": subagent_count,
+        "sourceKind": source_kind,
+        "sourceTrust": source_trust,
+        **USAGE_SOURCE_CONTRACTS.get((source_kind, source_trust), {}),
+        "sourceSha256": source_sha256,
+        "scopeSha256": scope_sha256,
+        "receiptSha256": "",
+    }
+    if (source_kind, source_trust) not in USAGE_SOURCE_CONTRACTS or source_trust == "asserted":
+        raise ProjectError("invalid runtime usage source classification")
+    candidate["receiptSha256"] = _usage_receipt_digest(candidate)
+    _validate_usage_record(candidate)
+    with locked_state(root, "usage"):
+        store = _runtime_usage_store(root)
+        for existing in store["records"]:
+            if existing["receiptSha256"] == candidate["receiptSha256"]:
+                return {"state": "existing", "record": existing}
+            if existing["scopeSha256"] == scope_sha256:
+                raise ProjectError("conflicting Codex runtime usage for the same completed turn")
+        if len(store["records"]) >= 100_000:
+            raise ProjectError("HelloDev usage store record limit reached")
+        highest = max((int(item["id"].removeprefix("runtime-usage-")) for item in store["records"]), default=0)
+        candidate["id"] = f"runtime-usage-{highest + 1:04d}"
+        store["records"].append(candidate)
+        write_json(ProjectPaths(root).runtime_usage_file, store)
+    return {"state": "recorded", "record": candidate}
 
 
 def usage_status(root: Path) -> dict[str, Any]:
@@ -181,10 +435,28 @@ def usage_status(root: Path) -> dict[str, Any]:
             "subagentTokens": None,
             "rootTokens": None,
             "latest": None,
+            "latestBreakdown": None,
+            "preferred": None,
+            "preferredBreakdown": None,
+            "preferredDetails": None,
+            "trustCounts": {"asserted": 0, "asserted-runtime": 0, "runtime-observed": 0},
             "accuracy": "unavailable; no externally reported usage",
         }
     total = sum(item.get("totalTokens", 0) for item in records)
     subagent = sum(item.get("subagentTokens", 0) for item in records)
+    observed = [item for item in records if item["sourceTrust"] == "runtime-observed"]
+    imported = [item for item in records if item["sourceTrust"] == "asserted-runtime"]
+    preferred = observed[-1] if observed else imported[-1] if imported else records[-1]
+    trust_values = {item["sourceTrust"] for item in records}
+    accuracy = (
+        "reported-only; externally reported; no Codex runtime receipt"
+        if trust_values == {"asserted"}
+        else "runtime-observed exact completed-turn receipts; attestation=none"
+        if trust_values == {"runtime-observed"}
+        else "caller-selected exact runtime metadata; attestation=none"
+        if trust_values == {"asserted-runtime"}
+        else "mixed-trust usage ledger; runtime-observed preferred over caller-selected and asserted values"
+    )
     return {
         "state": "reported",
         "records": len(records),
@@ -192,5 +464,14 @@ def usage_status(root: Path) -> dict[str, Any]:
         "subagentTokens": subagent,
         "rootTokens": total - subagent,
         "latest": usage_projection(records[-1]),
-        "accuracy": "reported-only; externally reported; no Codex runtime transcript is read",
+        "latestBreakdown": usage_breakdown_projection(records[-1]),
+        "preferred": usage_projection(preferred),
+        "preferredBreakdown": usage_breakdown_projection(preferred),
+        "preferredDetails": usage_public_projection(preferred),
+        "trustCounts": {
+            "asserted": sum(1 for item in records if item["sourceTrust"] == "asserted"),
+            "asserted-runtime": sum(1 for item in records if item["sourceTrust"] == "asserted-runtime"),
+            "runtime-observed": sum(1 for item in records if item["sourceTrust"] == "runtime-observed"),
+        },
+        "accuracy": accuracy,
     }

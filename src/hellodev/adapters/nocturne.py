@@ -202,7 +202,7 @@ def _invoke(configuration: dict[str, Any], method: str, parameters: dict[str, An
             {
                 "protocolVersion": "2025-03-26",
                 "capabilities": {},
-                "clientInfo": {"name": "hellodev", "version": "0.11.0"},
+                "clientInfo": {"name": "hellodev", "version": "0.12.1"},
             },
         )
         session.notify("notifications/initialized", {})

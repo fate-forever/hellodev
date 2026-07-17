@@ -83,6 +83,14 @@ class ProjectPaths:
         return self.state_dir / "usage.json"
 
     @property
+    def runtime_usage_file(self) -> Path:
+        return self.state_dir / "usage-receipts.json"
+
+    @property
+    def reflection_cycles_file(self) -> Path:
+        return self.state_dir / "reflection-cycles.json"
+
+    @property
     def optimization_file(self) -> Path:
         return self.state_dir / "optimization.json"
 
@@ -91,8 +99,20 @@ class ProjectPaths:
         return self.state_dir / "host-completions.json"
 
     @property
+    def host_envelopes_file(self) -> Path:
+        return self.state_dir / "host-envelopes.json"
+
+    @property
+    def transactions_file(self) -> Path:
+        return self.state_dir / "transactions.json"
+
+    @property
     def evolution_policy_file(self) -> Path:
         return self.state_dir / "evolution-policy.json"
+
+    @property
+    def policy_checkpoint_file(self) -> Path:
+        return self.state_dir / "policy-checkpoint.json"
 
 
 def _atomic_write(path: Path, content: str) -> None:

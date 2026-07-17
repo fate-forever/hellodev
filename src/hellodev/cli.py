@@ -5,6 +5,7 @@ from __future__ import annotations
 import argparse
 import hashlib
 import json
+import os
 import platform
 import subprocess
 import sys
@@ -18,6 +19,7 @@ from . import (
     audit,
     briefs,
     capabilities,
+    checkpoints,
     context_policy,
     contracts,
     dashboard,
@@ -25,6 +27,7 @@ from . import (
     gates,
     governance,
     host_bridge,
+    host_sdk,
     intelligence,
     knowledge_flows,
     lifecycle,
@@ -35,7 +38,10 @@ from . import (
     resume,
     routing,
     sagas,
+    transactions,
     drift,
+    efficiency_cycles,
+    usage_collector,
 )
 from .project import (
     ProjectError,
@@ -149,7 +155,7 @@ def _parser() -> argparse.ArgumentParser:
     delegate_pack.add_argument("--role", required=True)
     delegate_pack.add_argument("--token-budget", type=int, default=1_200)
 
-    usage_parser = commands.add_parser("usage", help="record source-labelled usage receipts")
+    usage_parser = commands.add_parser("usage", help="collect or record source-labelled usage receipts")
     usage_commands = usage_parser.add_subparsers(dest="usage_command", required=True)
     usage_commands.add_parser("status", help="show recorded usage totals")
     usage_record = usage_commands.add_parser("record", help="record externally reported usage counts")
@@ -158,6 +164,15 @@ def _parser() -> argparse.ArgumentParser:
     usage_record.add_argument("--subagents", type=int, default=0)
     usage_record.add_argument("--source", required=True)
     usage_record.add_argument("--scope", default="turn")
+    usage_collect = usage_commands.add_parser("collect", help="collect the previous completed Codex turn from runtime metadata")
+    usage_collect.add_argument("--session", default=None, help="explicit Codex rollout JSONL path; defaults to CODEX_THREAD_ID discovery")
+    usage_collect.add_argument("--thread-id", default=None, help="explicit Codex thread id; defaults to CODEX_THREAD_ID")
+    usage_collect.add_argument("--codex-home", default=None, help="Codex home containing sessions/; defaults to CODEX_HOME or ~/.codex")
+    usage_sync = usage_commands.add_parser("sync", help="backfill unrecorded completed Codex turns and reconcile 20-turn reflection cycles")
+    usage_sync.add_argument("--session", default=None, help="explicit Codex rollout JSONL path; defaults to CODEX_THREAD_ID discovery")
+    usage_sync.add_argument("--thread-id", default=None, help="explicit Codex thread id; defaults to CODEX_THREAD_ID")
+    usage_sync.add_argument("--codex-home", default=None, help="Codex home containing sessions/; defaults to CODEX_HOME or ~/.codex")
+    usage_sync.add_argument("--limit", type=int, default=100, help="maximum new completed turns to inspect (1-500)")
 
     optimize_parser = commands.add_parser("optimize", help="plan and inspect bounded optimization advice")
     optimize_commands = optimize_parser.add_subparsers(dest="optimize_command", required=True)
@@ -186,6 +201,13 @@ def _parser() -> argparse.ArgumentParser:
     host_parser = commands.add_parser("host", help="prepare and complete a host-neutral Agent execution envelope")
     host_commands = host_parser.add_subparsers(dest="host_command", required=True)
     host_commands.add_parser("status", help="show sanitized host completion state")
+    host_protocol = host_commands.add_parser("protocol", help="negotiate a compatible Host protocol version")
+    host_protocol.add_argument("--version", action="append", default=[], help="host-supported version; repeat as needed")
+    host_commands.add_parser("sdk", help="show typed Python Host SDK and bundled JSON Schema metadata")
+    host_pending = host_commands.add_parser("pending", help="inspect one sanitized pending HostEnvelope")
+    host_pending.add_argument("envelope_id")
+    host_abandon = host_commands.add_parser("abandon", help="close one pending or expired HostEnvelope without execution")
+    host_abandon.add_argument("envelope_id")
     host_prepare = host_commands.add_parser("prepare", help="build a bounded, fingerprint-bound HostEnvelope")
     host_prepare.add_argument("--intent", choices=tuple(context_policy.INTENT_LEVELS), required=True)
     host_prepare.add_argument("--level", choices=("L0", "L1", "L2"), default=None)
@@ -227,6 +249,28 @@ def _parser() -> argparse.ArgumentParser:
     policy_revert = policy_commands.add_parser("revert", help="restore the immediate prior committed policy with approval")
     policy_revert.add_argument("--approve", default=None)
     policy_revert.add_argument("--receipt", default=None)
+    policy_checkpoint = policy_commands.add_parser("checkpoint", help="export, save, or verify a portable policy head checkpoint")
+    checkpoint_commands = policy_checkpoint.add_subparsers(dest="checkpoint_command", required=True)
+    checkpoint_commands.add_parser("export", help="emit the current portable checkpoint without writing")
+    checkpoint_commands.add_parser("save", help="save the current checkpoint for Git/CI tracking")
+    checkpoint_commands.add_parser("status", help="compare the saved checkpoint with the current ledger")
+    checkpoint_verify = checkpoint_commands.add_parser("verify", help="verify an external checkpoint JSON")
+    checkpoint_input = checkpoint_verify.add_mutually_exclusive_group(required=True)
+    checkpoint_input.add_argument("--checkpoint", default=None, help="checkpoint JSON object")
+    checkpoint_input.add_argument("--file", default=None, help="UTF-8 checkpoint JSON file")
+    checkpoint_verify.add_argument(
+        "--require-match",
+        action="store_true",
+        help="return exit code 2 after emitting the verification when the ledger head differs",
+    )
+
+    transaction_parser = commands.add_parser("transaction", help="inspect or recover authorized policy transactions")
+    transaction_commands = transaction_parser.add_subparsers(dest="transaction_command", required=True)
+    transaction_commands.add_parser("status", help="show pending transaction recovery state")
+    transaction_show = transaction_commands.add_parser("show", help="show one transaction")
+    transaction_show.add_argument("transaction_id")
+    transaction_recover = transaction_commands.add_parser("recover", help="idempotently finish a transaction without reauthorization")
+    transaction_recover.add_argument("transaction_id")
 
     drift_parser = commands.add_parser("drift", help="audit local policy integrity and trust-aware host compliance")
     drift_commands = drift_parser.add_subparsers(dest="drift_command", required=True)
@@ -450,6 +494,22 @@ def _status(root: Path) -> dict[str, Any]:
 
 def _doctor(root: Path, include_fix_hints: bool = False) -> dict[str, Any]:
     state = _status(root)
+    try:
+        sdk = host_sdk.sdk_info()
+        sdk_check = {"name": "host-sdk", "state": "ok", "detail": sdk["protocol"]["selectedVersion"]}
+    except (ProjectError, OSError, json.JSONDecodeError) as error:
+        sdk_check = {"name": "host-sdk", "state": "incompatible", "detail": str(error)}
+    try:
+        transaction_state = transactions.status(root) if state["initialized"] else {"pendingCount": 0}
+        transaction_check = {
+            "name": "transaction-recovery",
+            "state": "action-required" if transaction_state["pendingCount"] else "ok",
+            "detail": f"pending={transaction_state['pendingCount']}",
+        }
+    except ProjectError as error:
+        transaction_check = {"name": "transaction-recovery", "state": "invalid", "detail": str(error)}
+    trellis_compatible = state["trellis"]["state"] != "unsafe"
+    nocturne_compatible = state["nocturne"]["state"] not in {"unsafe", "invalid"}
     checks = [
         {"name": "python", "state": "ok", "detail": platform.python_version()},
         {
@@ -463,10 +523,22 @@ def _doctor(root: Path, include_fix_hints: bool = False) -> dict[str, Any]:
             "detail": state["trellis"].get("reason", state["trellis"].get("execution", "unknown")),
         },
         {
+            "name": "trellis-compatibility",
+            "state": "ok" if trellis_compatible else "incompatible",
+            "detail": "bounded intent registry available" if trellis_compatible else "adapter state is incompatible",
+        },
+        {
             "name": "nocturne-adapter",
             "state": state["nocturne"]["state"],
             "detail": state["nocturne"].get("reason", state["nocturne"].get("execution", "unknown")),
         },
+        {
+            "name": "nocturne-compatibility",
+            "state": "ok" if nocturne_compatible else "incompatible",
+            "detail": "public stdio configuration is optional and bounded" if nocturne_compatible else "configured adapter is unsafe or invalid",
+        },
+        sdk_check,
+        transaction_check,
     ]
     value: dict[str, Any] = {"root": str(root), "checks": checks}
     if include_fix_hints:
@@ -604,6 +676,7 @@ def _open(root: Path, verbose: bool) -> dict[str, Any]:
     state = lifecycle.status(root)
     if state["phase"] == "new":
         started = _start(root)
+        usage_sync = _auto_usage_sync(root)
         result: dict[str, Any] = {"state": "opened", "created": bool(created and created["created"])}
         if verbose:
             result["start"] = started
@@ -611,7 +684,9 @@ def _open(root: Path, verbose: bool) -> dict[str, Any]:
             result.update(_compact_status(_status(root)))
         result["next"] = routing.next_decision(root)
         result["resume"] = resume.build(root)
+        result["usageSync"] = usage_sync
         return result
+    usage_sync = _auto_usage_sync(root)
     decision = routing.next_decision(root)
     return {
         "state": "resumed",
@@ -619,6 +694,39 @@ def _open(root: Path, verbose: bool) -> dict[str, Any]:
         **(_status(root) if verbose else _compact_status(_status(root))),
         "next": decision,
         "resume": resume.build(root),
+        "usageSync": usage_sync,
+    }
+
+
+def _roots_overlap(left: Path, right: Path) -> bool:
+    try:
+        left.relative_to(right)
+        return True
+    except ValueError:
+        try:
+            right.relative_to(left)
+            return True
+        except ValueError:
+            return False
+
+
+def _auto_usage_sync(root: Path) -> dict[str, Any]:
+    if os.environ.get("CODEX_THREAD_ID") is None:
+        return {"state": "unavailable", "reasonCode": "codex-thread-id-unavailable", "persistencePerformed": False}
+    if not _roots_overlap(root.resolve(), Path.cwd().resolve()):
+        return {"state": "skipped", "reasonCode": "selected-root-not-current-cwd", "persistencePerformed": False}
+    try:
+        value = usage_collector.sync_codex_usage(root)
+    except ProjectError:
+        return {"state": "unavailable", "reasonCode": "codex-runtime-sync-unavailable", "persistencePerformed": False}
+    return {
+        "state": value["state"],
+        "recordedCount": value["recordedCount"],
+        "skippedCount": value["skippedCount"],
+        "remainingUnrecordedCount": value["remainingUnrecordedCount"],
+        "cycleCount": value["reflectionCycle"]["cycleCount"],
+        "pendingReceiptCount": value["reflectionCycle"]["pendingReceiptCount"],
+        "persistencePerformed": value["persistencePerformed"],
     }
 
 
@@ -662,7 +770,7 @@ def _compact_status(state: dict[str, Any]) -> dict[str, Any]:
         next_command = next_step["command"]
     else:
         next_command = "hellodev open"
-    return {
+    value = {
         "version": state["version"],
         "root": state["root"],
         "initialized": state["initialized"],
@@ -673,6 +781,21 @@ def _compact_status(state: dict[str, Any]) -> dict[str, Any]:
         if state["initialized"]
         else "L0",
     }
+    if state["initialized"]:
+        try:
+            cycle = efficiency_cycles.status(Path(state["root"]))
+        except ProjectError:
+            cycle = None
+        if cycle is not None:
+            value["reflectionCycle"] = {
+                "state": cycle["state"],
+                "cycleCount": cycle["cycleCount"],
+                "pendingReceiptCount": cycle["pendingReceiptCount"],
+                "remainingUntilNextCycle": cycle["remainingUntilNextCycle"],
+            }
+        if "efficiency" in next_step:
+            value["efficiency"] = next_step["efficiency"]
+    return value
 
 
 def _start_output(root: Path, verbose: bool) -> dict[str, Any]:
@@ -1242,6 +1365,7 @@ def _profile_resume_arguments(args: argparse.Namespace) -> list[str]:
 
 def main(argv: list[str] | None = None) -> int:
     args = _parser().parse_args(argv)
+    exit_code = 0
     try:
         root = resolve_root(args.root)
         handlers: dict[str, Callable[[], tuple[Any, str]]] = {
@@ -1404,9 +1528,27 @@ def main(argv: list[str] | None = None) -> int:
                 value, heading = delegation.pack(payload, args.role, args.token_budget), "HelloDev delegation context"
         elif args.command == "usage":
             if args.usage_command == "status":
-                value, heading = governance.usage_status(root), "HelloDev usage"
-            else:
+                value, heading = {
+                    **governance.usage_status(root),
+                    "reflectionCycle": efficiency_cycles.status(root),
+                }, "HelloDev usage"
+            elif args.usage_command == "record":
                 value, heading = governance.record_usage(root, args.total, args.subagent, args.subagents, args.source, args.scope), "HelloDev usage recorded"
+            elif args.usage_command == "collect":
+                value, heading = usage_collector.collect_previous_codex_turn(
+                    root,
+                    session_file=args.session,
+                    thread_id=args.thread_id,
+                    codex_home=args.codex_home,
+                ), "HelloDev Codex usage collected"
+            else:
+                value, heading = usage_collector.sync_codex_usage(
+                    root,
+                    session_file=args.session,
+                    thread_id=args.thread_id,
+                    codex_home=args.codex_home,
+                    limit=args.limit,
+                ), "HelloDev Codex usage synchronized"
         elif args.command == "optimize":
             if args.optimize_command == "status":
                 value, heading = optimization.status(root), "HelloDev optimization"
@@ -1439,7 +1581,19 @@ def main(argv: list[str] | None = None) -> int:
                 value, heading = optimization.list_proposals(root), "HelloDev evolution proposals"
         elif args.command == "host":
             if args.host_command == "status":
-                value, heading = host_bridge.status(root), "HelloDev host bridge"
+                value, heading = {
+                    **host_bridge.status(root),
+                    "protocol": host_bridge.protocol_info(),
+                }, "HelloDev host bridge"
+            elif args.host_command == "protocol":
+                versions = args.version or list(host_bridge.SUPPORTED_PROTOCOL_VERSIONS)
+                value, heading = host_bridge.protocol_info(versions), "HelloDev Host protocol"
+            elif args.host_command == "sdk":
+                value, heading = host_sdk.sdk_info(), "HelloDev Host SDK"
+            elif args.host_command == "pending":
+                value, heading = host_bridge.envelope_status(root, args.envelope_id), "HelloDev pending HostEnvelope"
+            elif args.host_command == "abandon":
+                value, heading = host_bridge.abandon(root, args.envelope_id), "HelloDev HostEnvelope abandoned"
             elif args.host_command == "prepare":
                 delegation_payload = (
                     None
@@ -1482,6 +1636,21 @@ def main(argv: list[str] | None = None) -> int:
                 value, heading = policy_evolution.cancel_stage(root, args.proposal), "HelloDev evolution policy stage cancelled"
             elif args.policy_command == "evaluate":
                 value, heading = policy_evolution.evaluate(root, args.proposal), "HelloDev evolution canary evaluation"
+            elif args.policy_command == "checkpoint":
+                if args.checkpoint_command == "export":
+                    value, heading = checkpoints.export(root), "HelloDev policy checkpoint"
+                elif args.checkpoint_command == "save":
+                    value, heading = checkpoints.save(root), "HelloDev policy checkpoint saved"
+                elif args.checkpoint_command == "status":
+                    value, heading = checkpoints.status(root), "HelloDev policy checkpoint status"
+                else:
+                    if args.file is not None:
+                        checkpoint_value = checkpoints.load_file(args.file)
+                    else:
+                        checkpoint_value = _json_value(args.checkpoint, "policy checkpoint verify --checkpoint")
+                    value, heading = checkpoints.verify(root, checkpoint_value), "HelloDev policy checkpoint verification"
+                    if args.require_match and not value["matched"]:
+                        exit_code = 2
             else:
                 if args.approve is not None and args.receipt is not None:
                     raise ProjectError("provide either --approve or --receipt, not both")
@@ -1514,6 +1683,13 @@ def main(argv: list[str] | None = None) -> int:
                 elif args.approve is not None:
                     receipt_id = policy_evolution.authorize(root, action, args.approve)["id"]
                     value = apply_action(receipt_id)
+        elif args.command == "transaction":
+            if args.transaction_command == "status":
+                value, heading = transactions.status(root), "HelloDev policy transactions"
+            elif args.transaction_command == "show":
+                value, heading = transactions.get(root, args.transaction_id), "HelloDev policy transaction"
+            else:
+                value, heading = policy_evolution.recover_transaction(root, args.transaction_id), "HelloDev policy transaction recovered"
         elif args.command == "drift":
             value, heading = drift.status(root, args.expected_head), "HelloDev drift audit"
         elif args.command == "dashboard":
@@ -1679,7 +1855,7 @@ def main(argv: list[str] | None = None) -> int:
         else:
             value, heading = handlers[args.command]()
         _emit(value, args.json, heading)
-        return 0
+        return exit_code
     except (ProjectError, ValueError) as error:
         print(f"hellodev: {error}", file=sys.stderr)
         return 2

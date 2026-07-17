@@ -10,7 +10,7 @@ from pathlib import Path
 PACKAGE_ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(PACKAGE_ROOT / "src"))
 
-from hellodev import capabilities, gates, governance, host_bridge, lifecycle
+from hellodev import capabilities, gates, governance, host_bridge, lifecycle, resume
 from hellodev.project import ProjectError, ProjectPaths, init_project
 
 
@@ -35,7 +35,7 @@ class HostBridgeTests(unittest.TestCase):
         value.update(overrides)
         return value
 
-    def test_prepare_is_read_only_bounded_and_capped_by_effective_policy(self) -> None:
+    def test_prepare_is_bounded_and_persists_only_sanitized_pending_metadata(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             root = self._root(directory)
             before = {
@@ -59,7 +59,14 @@ class HostBridgeTests(unittest.TestCase):
                 for path in ProjectPaths(root).state_dir.rglob("*")
                 if path.is_file()
             }
-            self.assertEqual(before, after)
+            self.assertEqual(
+                set(after) - set(before),
+                {".hellodev/host-envelopes.json", ".hellodev/.host-envelopes.lock"},
+            )
+            pending_text = ProjectPaths(root).host_envelopes_file.read_text(encoding="utf-8")
+            self.assertNotIn(envelope["context"]["text"], pending_text)
+            self.assertEqual(host_bridge.status(root)["pendingEnvelopeCount"], 1)
+            self.assertEqual(resume.next_decision(root)["reasonCode"], "host-envelope-pending")
 
     def test_complete_is_idempotent_private_and_host_asserted(self) -> None:
         with tempfile.TemporaryDirectory() as directory:

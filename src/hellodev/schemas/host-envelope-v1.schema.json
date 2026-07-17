@@ -1,0 +1,39 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/fate-forever/hellodev/schema/host-envelope-v1.json",
+  "title": "HelloDev HostEnvelope v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schemaVersion", "id", "state", "intent", "workItemId", "next", "context",
+    "delegation", "usagePlan", "bindings", "authorization", "requestPayloadSha256",
+    "nonceSha256", "createdAt", "expiresAt", "envelopeSha256"
+  ],
+  "properties": {
+    "schemaVersion": {"const": 1},
+    "id": {"type": "string", "pattern": "^host-envelope-[0-9a-f]{16}$"},
+    "state": {"const": "prepared"},
+    "intent": {"type": "string", "minLength": 1},
+    "workItemId": {"type": ["string", "null"]},
+    "next": {"type": "object"},
+    "context": {"type": "object"},
+    "delegation": {"type": "object"},
+    "usagePlan": {"type": "object"},
+    "bindings": {"type": "object"},
+    "authorization": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["grantsExecution", "grantsEvidenceAuthority", "approvalReceiptId"],
+      "properties": {
+        "grantsExecution": {"const": false},
+        "grantsEvidenceAuthority": {"const": false},
+        "approvalReceiptId": {"type": "null"}
+      }
+    },
+    "requestPayloadSha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+    "nonceSha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+    "createdAt": {"type": "string"},
+    "expiresAt": {"type": "string"},
+    "envelopeSha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"}
+  }
+}

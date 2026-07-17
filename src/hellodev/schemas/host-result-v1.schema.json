@@ -1,0 +1,17 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/fate-forever/hellodev/schema/host-result-v1.json",
+  "title": "HelloDev HostResult v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["outcome", "retryCount", "retrievalMode", "delegationMode", "totalTokens", "subagentTokens", "subagentCount"],
+  "properties": {
+    "outcome": {"enum": ["succeeded", "partial", "failed", "blocked"]},
+    "retryCount": {"type": "integer", "minimum": 0, "maximum": 100},
+    "retrievalMode": {"enum": ["none", "local", "narrow-memory"]},
+    "delegationMode": {"enum": ["none", "planned", "rejected", "executed"]},
+    "totalTokens": {"type": ["integer", "null"], "minimum": 0},
+    "subagentTokens": {"type": ["integer", "null"], "minimum": 0},
+    "subagentCount": {"type": "integer", "minimum": 0, "maximum": 128}
+  }
+}

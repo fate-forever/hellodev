@@ -57,6 +57,19 @@ def next_decision(root: Path) -> dict[str, Any]:
             "suggestedLevel": "L0",
             "executionPerformed": False,
         }
+    from . import host_bridge, policy_evolution, transactions
+
+    transaction_state = transactions.status(root)
+    if transaction_state["pendingCount"]:
+        pending = transaction_state["pending"][0]
+        return {
+            "schemaVersion": 1,
+            "command": pending["recoveryCommand"],
+            "reason": f"Policy transaction {pending['id']} stopped after {pending['state']}.",
+            "reasonCode": "policy-transaction-recovery-required",
+            "suggestedLevel": "L2",
+            "executionPerformed": False,
+        }
     capability = capabilities.status(root)
     if capability["state"] != "fresh":
         return {
@@ -65,6 +78,17 @@ def next_decision(root: Path) -> dict[str, Any]:
             "reason": "The capability cache is missing or stale.",
             "reasonCode": "capability-cache-not-fresh",
             "suggestedLevel": "L0",
+            "executionPerformed": False,
+        }
+    pending_envelopes = host_bridge.pending_envelopes(root)
+    if pending_envelopes:
+        pending = pending_envelopes[0]
+        return {
+            "schemaVersion": 1,
+            "command": pending["recoveryCommand"],
+            "reason": f"HostEnvelope {pending['id']} has no recorded HostCompletion.",
+            "reasonCode": "host-envelope-pending",
+            "suggestedLevel": "L1",
             "executionPerformed": False,
         }
     incomplete = _incomplete_saga(root)
@@ -88,6 +112,19 @@ def next_decision(root: Path) -> dict[str, Any]:
             "executionPerformed": False,
         }
     lifecycle_state = lifecycle.status(root)
+    policy = policy_evolution.status(root)
+    active_canary = policy["activeCanary"]
+    if active_canary is not None and (
+        active_canary.get("expired", False) or active_canary.get("exhausted", False)
+    ):
+        return {
+            "schemaVersion": 1,
+            "command": f"hellodev policy evaluate --proposal {active_canary['proposalId']}",
+            "reason": "The active canary is expired or has reached its bounded completion window.",
+            "reasonCode": "canary-evaluation-required",
+            "suggestedLevel": "L2",
+            "executionPerformed": False,
+        }
     if lifecycle_state["phase"] == "checking":
         finish = gates.finish_decision(root)
         if not finish["allowed"]:
@@ -106,9 +143,14 @@ def next_decision(root: Path) -> dict[str, Any]:
         "executionPerformed": False,
     }
     if lifecycle_state["phase"] == "finished":
-        from . import optimization
+        from . import efficiency_cycles, optimization
 
-        hint = optimization.next_hint(root)
+        try:
+            hint = efficiency_cycles.next_hint(root)
+        except ProjectError:
+            hint = None
+        if hint is None:
+            hint = optimization.next_hint(root)
         if hint is not None:
             decision["efficiency"] = hint
     return decision
@@ -130,10 +172,16 @@ def build(root: Path) -> dict[str, Any]:
             "executionPerformed": False,
         }
     capability = capabilities.status(root)
+    from . import checkpoints, host_bridge, policy_evolution, transactions
+
     lifecycle_state = lifecycle.status(root)
     work_item = contracts.current_work_item(root)
     incomplete = _incomplete_saga(root)
     gate = gates.status(root)
+    transaction_state = transactions.status(root)
+    pending_envelopes = host_bridge.pending_envelopes(root)
+    policy = policy_evolution.status(root)
+    checkpoint = checkpoints.status(root)
     work_projection = None
     if work_item is not None:
         work_projection = {
@@ -156,7 +204,12 @@ def build(root: Path) -> dict[str, Any]:
             else None
         ),
         "gateState": gate["state"],
+        "gateLifecycleConsistency": gate.get("lifecycleConsistency"),
         "finishPolicy": gate["finishPolicy"],
+        "pendingTransaction": transaction_state["pending"][0] if transaction_state["pending"] else None,
+        "pendingHostEnvelope": pending_envelopes[0] if pending_envelopes else None,
+        "activeCanary": policy["activeCanary"],
+        "checkpointState": checkpoint["state"],
         "next": decision,
         "executionPerformed": False,
     }
@@ -169,6 +222,9 @@ def context_pack(root: Path, token_budget: int = 256) -> dict[str, Any]:
     projection = build(root)
     work = projection["currentWorkItem"]
     saga = projection["incompleteSaga"]
+    transaction = projection.get("pendingTransaction")
+    envelope = projection.get("pendingHostEnvelope")
+    canary = projection.get("activeCanary")
     lines = [
         "HelloDev resume",
         f"phase: {projection['lifecyclePhase'] or 'uninitialized'}",
@@ -180,6 +236,10 @@ def context_pack(root: Path, token_budget: int = 256) -> dict[str, Any]:
         ),
         f"gate: {projection['gateState']} policy={projection.get('finishPolicy', 'suggest')}",
         f"saga: {saga['id']} {saga['phase']}" if saga is not None else "saga: none",
+        f"transaction: {transaction['id']} {transaction['state']}" if transaction is not None else "transaction: none",
+        f"host-envelope: {envelope['id']} pending" if envelope is not None else "host-envelope: none",
+        f"canary: {canary['proposalId']} {canary['observedTurns']}/{canary['turnLimit']}" if canary is not None else "canary: none",
+        f"checkpoint: {projection.get('checkpointState', 'not-saved')}",
         f"next: {projection['next']['command']}",
         f"reason: {projection['next']['reasonCode']}",
     ]

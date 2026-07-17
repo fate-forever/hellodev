@@ -8,7 +8,7 @@ from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any
 
-from . import approval, receipts
+from . import approval, receipts, transactions
 from .project import ProjectError, ProjectPaths, load_config, resolve_root, utc_now, write_json
 from .state_lock import locked_state
 
@@ -509,20 +509,12 @@ def canary_action(root: str | Path, proposal_id: str, turns: int, ttl_seconds: i
 
 
 def _authorized_receipt(root: Path, action: dict[str, Any], token: str) -> dict[str, Any]:
-    # Refuse a broken/unsafe receipt store before consuming the one-time token.
+    # Refuse unsafe downstream stores before consuming the one-time token.
     receipts.list_receipts(root)
-    approval.consume(root, action, token, "policy")
-    return receipts.record(
-        root,
-        "hellodev",
-        action["operation"],
-        "write",
-        action,
-        {"authorized": True, "ledgerMutationPending": True},
-        True,
-        kind="policy",
-        authorization_mode="token-required",
-    )
+    transactions.status(root)
+    with locked_state(root, "policy-transaction"):
+        transaction = approval.consume_for_transaction(root, action, token, "policy")
+        return transactions.record_authorization_receipt(root, transaction["id"])
 
 
 def prepare_authorization(root: str | Path, action: dict[str, Any]) -> dict[str, Any]:
@@ -544,6 +536,13 @@ def _receipt_for_action(root: Path, action: dict[str, Any], receipt_id: str) -> 
     ):
         raise ProjectError("policy receipt does not authorize this exact evolution action")
     return receipt
+
+
+def _complete_transaction_for_event(root: Path, receipt_id: str, event: dict[str, Any]) -> dict[str, Any] | None:
+    transaction = transactions.transaction_for_receipt(root, receipt_id)
+    if transaction is None:
+        return None
+    return transactions.mark_ledger_applied(root, transaction["id"], event["id"])
 
 
 def _existing_event_for_receipt(
@@ -585,11 +584,13 @@ def start_canary(root: str | Path, proposal_id: str, turns: int, ttl_seconds: in
         ttl_seconds=ttl_seconds,
     )
     if existing is not None:
+        transaction = _complete_transaction_for_event(resolved, receipt_id, existing)
         return {
             "schemaVersion": SCHEMA_VERSION,
             "state": "existing",
             "event": existing,
             "receipt": receipts.get(resolved, receipt_id),
+            **({"transaction": transaction} if transaction is not None else {}),
         }
     action = canary_action(resolved, proposal_id, turns, ttl_seconds)
     receipt = _receipt_for_action(resolved, action, receipt_id)
@@ -614,7 +615,48 @@ def start_canary(root: str | Path, proposal_id: str, turns: int, ttl_seconds: in
         "evidenceHostCompletionIds": [],
         "idempotencyKeySha256": _canonical_digest(key_payload),
     })
-    return {"schemaVersion": SCHEMA_VERSION, "state": "canary-active", "event": event, "receipt": receipt}
+    transaction = _complete_transaction_for_event(resolved, receipt_id, event)
+    return {
+        "schemaVersion": SCHEMA_VERSION,
+        "state": "canary-active",
+        "event": event,
+        "receipt": receipt,
+        **({"transaction": transaction} if transaction is not None else {}),
+    }
+
+
+def _evaluation_metrics(root: Path, completions: list[dict[str, Any]]) -> dict[str, Any]:
+    from . import optimization
+
+    size = len(completions)
+    succeeded = sum(1 for item in completions if item["outcome"] == "succeeded")
+    budget_exceeded = sum(1 for item in completions if item["budgetState"] == "exceeded")
+    asserted_tokens: list[int] = []
+    unavailable = 0
+    for item in completions:
+        if item["usageTrust"] != "host-asserted":
+            unavailable += 1
+            continue
+        trace = optimization.get_trace(root, item["traceId"])
+        actual = trace["usageEnvelope"]["actual"]
+        if not isinstance(actual, dict) or actual.get("sourceTrust") != "host-asserted":
+            raise ProjectError("host-asserted completion is missing its bound usage envelope")
+        asserted_tokens.append(actual["totalTokens"])
+    token_state = "host-asserted-comparable" if size > 0 and len(asserted_tokens) == size else "unavailable"
+    return {
+        "sampleSize": size,
+        "successCount": succeeded,
+        "successRateBasisPoints": succeeded * 10_000 // size if size else 0,
+        "retryTotal": sum(item["retryCount"] for item in completions),
+        "averageRetryMilli": sum(item["retryCount"] for item in completions) * 1_000 // size if size else 0,
+        "subagentTotal": sum(item["subagentCount"] for item in completions),
+        "averageSubagentMilli": sum(item["subagentCount"] for item in completions) * 1_000 // size if size else 0,
+        "budgetExceededCount": budget_exceeded,
+        "budgetExceededRateBasisPoints": budget_exceeded * 10_000 // size if size else 0,
+        "usageTrustCounts": {"host-asserted": len(asserted_tokens), "unavailable": unavailable},
+        "tokenComparisonState": token_state,
+        "averageHostAssertedTokens": sum(asserted_tokens) // size if token_state == "host-asserted-comparable" else None,
+    }
 
 
 def evaluate(root: str | Path, proposal_id: str) -> dict[str, Any]:
@@ -625,11 +667,29 @@ def evaluate(root: str | Path, proposal_id: str) -> dict[str, Any]:
     canary = derived["activeCanary"]
     if canary is None or canary["proposalId"] != proposal_id:
         raise ProjectError("the selected EvolutionProposal has no active canary")
-    completions = [
+    canary_completions = [
         item for item in host_bridge.list_completions(resolved)
         if item["policyLedgerHeadSha256"] == canary["eventSha256"] and not item["late"]
     ]
-    selected = completions[: canary["canary"]["turnLimit"]]
+    turn_limit = canary["canary"]["turnLimit"]
+    selected = canary_completions[:turn_limit]
+    stage_event = next(
+        (
+            item for item in reversed(store["events"][: canary["sequence"] - 1])
+            if item["eventType"] == "stage" and item["proposalId"] == proposal_id
+        ),
+        None,
+    )
+    if stage_event is None:
+        raise ProjectError("active canary is missing its staged baseline")
+    baseline_head = stage_event["previousEventSha256"]
+    baseline_candidates = [
+        item for item in host_bridge.list_completions(resolved)
+        if item["policyLedgerHeadSha256"] == baseline_head and not item["late"]
+    ]
+    baseline_selected = baseline_candidates[-turn_limit:]
+    baseline_metrics = _evaluation_metrics(resolved, baseline_selected)
+    canary_metrics = _evaluation_metrics(resolved, selected)
     violations: list[dict[str, Any]] = []
     for completion in selected:
         if completion["outcome"] != "succeeded":
@@ -640,24 +700,71 @@ def evaluate(root: str | Path, proposal_id: str) -> dict[str, Any]:
             violations.append({"completionId": completion["id"], "reasonCode": "retry-policy-exceeded"})
         if completion["subagentCount"] > canary["afterPolicy"]["delegation.effectiveMaxAgents"]:
             violations.append({"completionId": completion["id"], "reasonCode": "delegation-policy-exceeded"})
+    evidence_sufficient = len(selected) == turn_limit and len(baseline_selected) == turn_limit
+    missing_baseline = max(0, turn_limit - len(baseline_selected))
+    missing_canary = max(0, turn_limit - len(selected))
+    comparisons = {
+        "successRateDeltaBasisPoints": canary_metrics["successRateBasisPoints"] - baseline_metrics["successRateBasisPoints"],
+        "averageRetryDeltaMilli": canary_metrics["averageRetryMilli"] - baseline_metrics["averageRetryMilli"],
+        "averageSubagentDeltaMilli": canary_metrics["averageSubagentMilli"] - baseline_metrics["averageSubagentMilli"],
+        "budgetExceededRateDeltaBasisPoints": canary_metrics["budgetExceededRateBasisPoints"] - baseline_metrics["budgetExceededRateBasisPoints"],
+        "averageTokenDelta": (
+            canary_metrics["averageHostAssertedTokens"] - baseline_metrics["averageHostAssertedTokens"]
+            if baseline_metrics["tokenComparisonState"] == canary_metrics["tokenComparisonState"] == "host-asserted-comparable"
+            else None
+        ),
+        "tokenTrust": (
+            "host-asserted-not-provider-verified"
+            if baseline_metrics["tokenComparisonState"] == canary_metrics["tokenComparisonState"] == "host-asserted-comparable"
+            else "unavailable"
+        ),
+    }
+    regressions = []
+    if comparisons["successRateDeltaBasisPoints"] < 0:
+        regressions.append("success-rate-regressed")
+    if comparisons["averageRetryDeltaMilli"] > 0:
+        regressions.append("retry-average-regressed")
+    if comparisons["averageSubagentDeltaMilli"] > 0:
+        regressions.append("delegation-average-regressed")
+    if comparisons["budgetExceededRateDeltaBasisPoints"] > 0:
+        regressions.append("budget-exceeded-rate-regressed")
     if derived["canaryExpired"]:
         state, reason = "failed", "canary-expired"
     elif violations:
         state, reason = "failed", "canary-policy-violation"
-    elif len(selected) < canary["canary"]["turnLimit"]:
-        state, reason = "pending", "insufficient-host-completions"
+    elif len(baseline_selected) < turn_limit:
+        state, reason = "pending", "insufficient-baseline-completions"
+    elif len(selected) < turn_limit:
+        state, reason = "pending", "insufficient-canary-completions"
+    elif regressions:
+        state, reason = "failed", "canary-regressed-against-baseline"
     else:
-        state, reason = "passed", "bounded-canary-completed"
+        state, reason = "passed", "bounded-baseline-comparison-passed"
     return {
         "schemaVersion": SCHEMA_VERSION,
+        "evaluationVersion": 2,
         "state": state,
         "reasonCode": reason,
         "proposalId": proposal_id,
-        "requiredCompletions": canary["canary"]["turnLimit"],
+        "requiredCompletions": turn_limit,
+        "requiredBaselineCompletions": turn_limit,
         "observedCompletions": len(selected),
+        "observedBaselineCompletions": len(baseline_selected),
         "completionIds": [item["id"] for item in selected],
+        "baselineCompletionIds": [item["id"] for item in baseline_selected],
         "violations": violations,
+        "regressions": regressions,
+        "evidenceSufficient": evidence_sufficient,
+        "commitEligible": state == "passed",
+        "missingBaselineCompletions": missing_baseline,
+        "missingCanaryCompletions": missing_canary,
+        "baselinePolicyLedgerHeadSha256": baseline_head,
+        "canaryPolicyLedgerHeadSha256": canary["eventSha256"],
+        "baseline": baseline_metrics,
+        "canary": canary_metrics,
+        "comparison": comparisons,
         "usageTrust": sorted(set(item["usageTrust"] for item in selected)) or ["unavailable"],
+        "tokenAccuracy": "host-asserted or unavailable; never provider-verified",
         "executionPerformed": False,
         "persistencePerformed": False,
     }
@@ -700,11 +807,13 @@ def commit(root: str | Path, proposal_id: str, receipt_id: str) -> dict[str, Any
         proposal_id=proposal_id,
     )
     if existing is not None:
+        transaction = _complete_transaction_for_event(resolved, receipt_id, existing)
         return {
             "schemaVersion": SCHEMA_VERSION,
             "state": "existing",
             "event": existing,
             "receipt": receipts.get(resolved, receipt_id),
+            **({"transaction": transaction} if transaction is not None else {}),
         }
     action = commit_action(resolved, proposal_id)
     receipt = _receipt_for_action(resolved, action, receipt_id)
@@ -721,7 +830,14 @@ def commit(root: str | Path, proposal_id: str, receipt_id: str) -> dict[str, Any
         "evidenceHostCompletionIds": action["evidenceHostCompletionIds"],
         "idempotencyKeySha256": _canonical_digest({**action, "authorizationReceiptId": receipt["id"]}),
     })
-    return {"schemaVersion": SCHEMA_VERSION, "state": "committed", "event": event, "receipt": receipt}
+    transaction = _complete_transaction_for_event(resolved, receipt_id, event)
+    return {
+        "schemaVersion": SCHEMA_VERSION,
+        "state": "committed",
+        "event": event,
+        "receipt": receipt,
+        **({"transaction": transaction} if transaction is not None else {}),
+    }
 
 
 def revert_action(root: str | Path) -> dict[str, Any]:
@@ -771,11 +887,13 @@ def revert(root: str | Path, receipt_id: str) -> dict[str, Any]:
     resolved = resolve_root(root)
     existing = _existing_event_for_receipt(resolved, receipt_id, "revert")
     if existing is not None:
+        transaction = _complete_transaction_for_event(resolved, receipt_id, existing)
         return {
             "schemaVersion": SCHEMA_VERSION,
             "state": "existing",
             "event": existing,
             "receipt": receipts.get(resolved, receipt_id),
+            **({"transaction": transaction} if transaction is not None else {}),
         }
     action = revert_action(resolved)
     receipt = _receipt_for_action(resolved, action, receipt_id)
@@ -792,4 +910,55 @@ def revert(root: str | Path, receipt_id: str) -> dict[str, Any]:
         "evidenceHostCompletionIds": [],
         "idempotencyKeySha256": _canonical_digest({**action, "authorizationReceiptId": receipt["id"]}),
     })
-    return {"schemaVersion": SCHEMA_VERSION, "state": "reverted", "event": event, "receipt": receipt}
+    transaction = _complete_transaction_for_event(resolved, receipt_id, event)
+    return {
+        "schemaVersion": SCHEMA_VERSION,
+        "state": "reverted",
+        "event": event,
+        "receipt": receipt,
+        **({"transaction": transaction} if transaction is not None else {}),
+    }
+
+
+def recover_transaction(root: str | Path, transaction_id: str) -> dict[str, Any]:
+    """Idempotently finish an authorized policy transaction without the raw token."""
+    resolved = resolve_root(root)
+    with locked_state(resolved, "policy-transaction"):
+        transaction = transactions.get(resolved, transaction_id)
+        if transaction["state"] == "authorized":
+            approval.consume_bound_plan(
+                resolved,
+                transaction["action"],
+                transaction["approvalPlanId"],
+                transaction["id"],
+            )
+            transaction = transactions.mark_token_consumed(resolved, transaction_id)
+        if transaction["state"] == "token-consumed":
+            transactions.record_authorization_receipt(resolved, transaction_id)
+            transaction = transactions.get(resolved, transaction_id)
+        if transaction["state"] == "receipt-recorded":
+            action = transaction["action"]
+            if transaction["operation"] == "evolution.canary-start":
+                result = start_canary(
+                    resolved,
+                    action["proposalId"],
+                    action["canary"]["turnLimit"],
+                    action["canary"]["ttlSeconds"],
+                    transaction["receiptId"],
+                )
+            elif transaction["operation"] == "evolution.commit":
+                result = commit(resolved, action["proposalId"], transaction["receiptId"])
+            elif transaction["operation"] == "evolution.revert":
+                result = revert(resolved, transaction["receiptId"])
+            else:
+                raise ProjectError("unsupported policy transaction operation")
+            transaction = transactions.get(resolved, transaction_id)
+        else:
+            result = {"state": "existing"}
+    return {
+        "schemaVersion": SCHEMA_VERSION,
+        "state": "recovered" if transaction["state"] == "ledger-applied" else "pending",
+        "transaction": transaction,
+        "resultState": result["state"],
+        "newAuthorizationRequired": False,
+    }

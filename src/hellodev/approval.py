@@ -187,18 +187,35 @@ def prepare(root: Path, payload: dict[str, Any], risk: str) -> dict[str, Any]:
     payload_hash = _canonical_digest(payload)
     with _locked_store(paths):
         store = _read_store(paths)
+        highest = max(
+            (
+                int(str(plan.get("id", "approval-plan-0")).removeprefix("approval-plan-"))
+                for plan in store["plans"]
+                if str(plan.get("id", "approval-plan-0")).removeprefix("approval-plan-").isdigit()
+            ),
+            default=0,
+        )
+        plan_id = f"approval-plan-{highest + 1:04d}"
         store["plans"].append(
             {
+                "id": plan_id,
                 "payloadSha256": payload_hash,
                 "risk": risk,
                 "tokenSha256": hashlib.sha256(token.encode("utf-8")).hexdigest(),
                 "createdAt": utc_now(),
                 "consumedAt": None,
+                "transactionId": None,
             }
         )
         _safe_lstat(paths.approvals_file, "approval store")
         write_json(paths.approvals_file, store)
-    return {"state": "awaiting-confirmation", "risk": risk, "approval": token, "payloadSha256": payload_hash}
+    return {
+        "state": "awaiting-confirmation",
+        "risk": risk,
+        "approval": token,
+        "payloadSha256": payload_hash,
+        "approvalPlanId": plan_id,
+    }
 
 
 def consume(root: Path, payload: dict[str, Any], token: str, risk: str) -> None:
@@ -222,6 +239,64 @@ def consume(root: Path, payload: dict[str, Any], token: str, risk: str) -> None:
                 write_json(paths.approvals_file, store)
                 return
     raise ProjectError("approval token is invalid, already consumed, or does not match this exact operation")
+
+
+def consume_for_transaction(root: Path, payload: dict[str, Any], token: str, risk: str) -> dict[str, Any]:
+    """Durably journal a validated policy token before marking it consumed."""
+    if risk != "policy":
+        raise ProjectError("only policy approvals may enter the transaction journal")
+    from . import transactions
+
+    load_config(root)
+    paths = ProjectPaths(Path(root).expanduser().resolve())
+    payload_hash = _canonical_digest(payload)
+    token_hash = hashlib.sha256(token.encode("utf-8")).hexdigest()
+    transaction_id: str | None = None
+    with _locked_store(paths):
+        store = _read_store(paths)
+        for plan in store["plans"]:
+            if (
+                plan.get("consumedAt") is None
+                and plan.get("risk") == risk
+                and isinstance(plan.get("id"), str)
+                and hmac.compare_digest(str(plan.get("payloadSha256", "")), payload_hash)
+                and hmac.compare_digest(str(plan.get("tokenSha256", "")), token_hash)
+            ):
+                transaction = transactions.begin(paths.root, payload, plan["id"])
+                transaction_id = transaction["id"]
+                plan["consumedAt"] = utc_now()
+                plan["transactionId"] = transaction_id
+                _safe_lstat(paths.approvals_file, "approval store")
+                write_json(paths.approvals_file, store)
+                break
+    if transaction_id is None:
+        raise ProjectError("approval token is invalid, already consumed, or does not match this exact operation")
+    return transactions.mark_token_consumed(paths.root, transaction_id)
+
+
+def consume_bound_plan(root: Path, payload: dict[str, Any], plan_id: str, transaction_id: str, risk: str = "policy") -> dict[str, Any]:
+    """Complete token consumption from an already-authorized WAL entry without the raw token."""
+    if risk != "policy":
+        raise ProjectError("only policy approvals may be recovered transactionally")
+    load_config(root)
+    paths = ProjectPaths(Path(root).expanduser().resolve())
+    payload_hash = _canonical_digest(payload)
+    with _locked_store(paths):
+        store = _read_store(paths)
+        plan = next((item for item in store["plans"] if item.get("id") == plan_id), None)
+        if plan is None or plan.get("risk") != risk or plan.get("payloadSha256") != payload_hash:
+            raise ProjectError("policy transaction approval plan does not match")
+        existing_transaction = plan.get("transactionId")
+        if existing_transaction not in {None, transaction_id}:
+            raise ProjectError("approval plan belongs to another policy transaction")
+        changed = plan.get("consumedAt") is None or existing_transaction is None
+        if plan.get("consumedAt") is None:
+            plan["consumedAt"] = utc_now()
+        plan["transactionId"] = transaction_id
+        if changed:
+            _safe_lstat(paths.approvals_file, "approval store")
+            write_json(paths.approvals_file, store)
+    return {"state": "consumed", "approvalPlanId": plan_id, "transactionId": transaction_id}
 
 
 def prepare_policy_change(root: Path, policy: dict[str, Any]) -> dict[str, Any]:

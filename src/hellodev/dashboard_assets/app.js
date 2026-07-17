@@ -65,6 +65,8 @@ const advancedCommands = new Set([
   "hellodev host status",
   "hellodev policy status",
   "hellodev drift status",
+  "hellodev transaction status",
+  "hellodev policy checkpoint status",
 ]);
 
 async function load() {
@@ -73,13 +75,14 @@ async function load() {
   const data = await response.json();
   const continuity = data.continuity;
   const optimization = data.optimization;
+  const efficiencyCycle = data.efficiencyCycle;
   const advanced = data.advanced;
   $("health-dot").style.background = "var(--accent)";
   $("health-text").textContent = "本机 · 只读";
   $("phase").textContent = data.lifecycle.phase;
   $("tasks").textContent = data.tasks.count;
   $("cache").textContent = data.capabilities.state;
-  $("tokens").textContent = data.usage.totalTokens ?? "未上报";
+  $("tokens").textContent = data.usage.totalTokens ?? "未采集";
 
   $("adapters").append(
     row("Trellis", data.adapters.trellis.detail, data.adapters.trellis.state),
@@ -106,6 +109,7 @@ async function load() {
   $("gate").append(
     row("对齐状态", `${gate.validEvidenceCount} 条当前证据，${gate.staleEvidenceCount} 条过期证据`, gate.state),
     row("Finish policy", "Gate 只读投影，不会修改 Trellis", gate.finishPolicy),
+    row("Lifecycle consistency", gate.lifecycleConsistency.reasonCode, gate.lifecycleConsistency.state),
   );
 
   if (continuity.incompleteSagas.length) {
@@ -122,9 +126,25 @@ async function load() {
   $("optimization-reports").textContent = optimization.reportCount;
   $("optimization-proposals").textContent = optimization.proposalCount;
   $("optimization-stale").textContent = optimization.staleProposalCount;
+  $("cycle-count").textContent = efficiencyCycle.cycleCount;
+  $("cycle-progress").textContent = `${efficiencyCycle.pendingReceiptCount}/${efficiencyCycle.windowSize}`;
+  $("cycle-remaining").textContent = efficiencyCycle.remainingUntilNextCycle ?? "unavailable";
+  const latestCycle = efficiencyCycle.latest;
+  if (latestCycle) {
+    const metrics = latestCycle.metrics;
+    $("efficiency-cycle").append(
+      row("Average tokens", `${metrics.totalTokens} tokens across ${latestCycle.receiptCount} completed turns`, String(metrics.averageTokens)),
+      row("Cache reuse", "Cached input share across the trusted twenty-turn window", `${(metrics.cacheShareBasisPoints / 100).toFixed(1)}%`),
+      row("Subagent share", `${metrics.subagentCount} delegated runs in the window`, `${(metrics.subagentShareBasisPoints / 100).toFixed(1)}%`),
+      action("Efficiency recommendation", latestCycle.recommendation.command, latestCycle.recommendation.reasonCode),
+      row("Policy boundary", "Advice only; human review and tighten-only validation remain required", latestCycle.policyEffect.applyAllowed ? "apply" : "no auto-apply"),
+    );
+  } else {
+    $("efficiency-cycle").append(empty(`Collect ${efficiencyCycle.remainingUntilNextCycle ?? efficiencyCycle.windowSize} more trusted completed turns for the first reflection cycle`));
+  }
   $("optimization-status").append(
     row("状态", optimization.reasonCode, optimization.state),
-    row("Usage", "仅使用外部上报的数值投影", optimization.usageState),
+    row("Usage", "只显示显式关联到 DecisionTrace 的用量；不会自动绑定最新收据", optimization.usageState),
     row("Apply", "0.10 不允许页面应用 Proposal", optimization.applyAllowed ? "allowed" : "disabled"),
   );
 
@@ -140,9 +160,10 @@ async function load() {
       $("optimization-usage").append(
         row("实际 Token", `root=${actual.rootTokens} · subagent=${actual.subagentTokens}`, String(actual.totalTokens)),
         row("Subagents", "仅外部上报计数", String(actual.subagentCount)),
+        row("Trust", `${actual.sourceKind} · ${actual.sourceTrust}`, actual.accuracy),
       );
     } else {
-      $("optimization-usage").append(empty("没有可用的外部 usage 回执"));
+      $("optimization-usage").append(empty("没有可用的 usage 回执"));
     }
   } else {
     $("optimization-usage").append(empty("尚无 DecisionTrace usage envelope"));
@@ -176,6 +197,10 @@ async function load() {
   $("host-late").textContent = advanced.host.lateCount;
   $("policy-events").textContent = advanced.policy.eventCount;
   $("drift-findings").textContent = advanced.drift.findingCount;
+  $("pending-transactions").textContent = advanced.transactions.pendingCount;
+  $("pending-envelopes").textContent = advanced.host.pendingEnvelopeCount;
+  $("checkpoint-state").textContent = advanced.checkpoint.state;
+  $("host-protocol").textContent = advanced.hostProtocol.selectedVersion;
   $("host-status").append(
     row("状态", `${advanced.host.budgetExceededCount} 次预算超限`, advanced.host.state),
     row("Usage trust", `asserted=${advanced.host.usageTrustCounts.hostAsserted} · unavailable=${advanced.host.usageTrustCounts.unavailable}`, "counts"),
@@ -193,6 +218,26 @@ async function load() {
     row("试运行窗口", `expired=${advanced.policy.canaryExpired}`, advanced.policy.canaryActive ? "active" : "inactive"),
     row("完整性", "只显示结构校验状态", advanced.policy.integrityState),
   );
+  $("transaction-status").append(
+    row("State", "Authorized policy mutations recover without a new approval token", advanced.transactions.state),
+    row("Pending", "Only counts and one read-only status command are exposed", String(advanced.transactions.pendingCount)),
+  );
+  const experiment = advanced.canaryEvaluation;
+  if (experiment) {
+    $("canary-evaluation").append(
+      row("State", experiment.reasonCode, experiment.state),
+      row("Evidence", `baseline=${experiment.baselineObserved}/${experiment.required} · canary=${experiment.canaryObserved}/${experiment.required}`, experiment.evidenceSufficient ? "sufficient" : "insufficient"),
+      row("Commit", `missing baseline=${experiment.missingBaseline} · canary=${experiment.missingCanary}`, experiment.commitEligible ? "eligible" : "blocked"),
+      row("Regressions", "Success, retry, delegation and budget comparisons", String(experiment.regressionCount)),
+      row("Token trust", "No exact/provider claim is made for Host assertions", experiment.comparison.tokenTrust),
+    );
+  } else {
+    $("canary-evaluation").append(empty("No active Canary experiment"));
+  }
+  $("checkpoint-status").append(
+    row("State", "External CI/Git/Host copies provide the durable comparison point", advanced.checkpoint.state),
+    row("Matched", "A local saved copy alone is not tamper-proof", advanced.checkpoint.matched ?? "not-saved"),
+  );
   const driftCounts = advanced.drift.counts;
   $("drift-status").append(
     row("状态", advanced.drift.reasonCode, advanced.drift.state),
@@ -204,6 +249,8 @@ async function load() {
     ["检查 Host Bridge", advanced.host.command],
     ["检查 Policy Ledger", advanced.policy.command],
     ["检查 Drift", advanced.drift.command],
+    ["检查 Transaction WAL", advanced.transactions.command],
+    ["检查 Checkpoint", advanced.checkpoint.command],
   ].forEach(([label, command]) => {
     if (advancedCommands.has(command)) {
       $("advanced-actions").append(action(label, command, "固定只读命令，仅复制"));
@@ -252,7 +299,8 @@ async function load() {
     row("Host completions", "仅计数", String(data.audit.hostCompletions)),
     row("Policy events", "仅计数，不展示 patch", String(data.audit.policyEvents)),
     row("Drift findings", "仅计数", String(data.audit.driftFindings)),
-    row("Usage receipts", "仅外部上报", String(data.usage.records)),
+    row("Usage receipts", `runtime=${data.usage.trustCounts["runtime-observed"]} · selected=${data.usage.trustCounts["asserted-runtime"]} · asserted=${data.usage.trustCounts.asserted}`, String(data.usage.records)),
+    row("ReflectionCycle", `${efficiencyCycle.pendingReceiptCount}/${efficiencyCycle.windowSize} turns toward the next deterministic review`, String(efficiencyCycle.cycleCount)),
   );
 }
 

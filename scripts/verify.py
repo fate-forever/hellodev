@@ -29,6 +29,11 @@ FAST_TESTS = (
     "tests.test_host_bridge",
     "tests.test_policy_evolution",
     "tests.test_v11_cli",
+    "tests.test_efficiency_cycles",
+    "tests.test_usage_collector",
+    "tests.test_v12_reliability",
+    "tests.test_v121_polish",
+    "tests.test_v121_oss",
 )
 
 

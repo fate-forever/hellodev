@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "hellodev-core"
-version = "0.11.0"
+version = "0.12.1"
 description = "Standalone, adapter-oriented development workflow CLI"
 readme = "README.md"
 requires-python = ">=3.10"
@@ -33,4 +33,4 @@ package-dir = {"" = "src"}
 where = ["src"]
 
 [tool.setuptools.package-data]
-hellodev = ["dashboard_assets/*.html", "dashboard_assets/*.css", "dashboard_assets/*.js"]
+hellodev = ["dashboard_assets/*.html", "dashboard_assets/*.css", "dashboard_assets/*.js", "schemas/*.json", "py.typed"]

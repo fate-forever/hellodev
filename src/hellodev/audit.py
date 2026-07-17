@@ -42,19 +42,21 @@ def _saga_summaries(root: Path) -> list[dict[str, Any]]:
 
 def export(root: Path) -> dict[str, Any]:
     """Return hash-only/pointer-only audit state without persisting a report."""
-    from . import contracts, drift, gates, host_bridge, optimization, policy_evolution, resume
+    from . import checkpoints, contracts, drift, gates, host_bridge, optimization, policy_evolution, resume, transactions
 
     load_config(root)
     capability_state = capabilities.status(root)
     usage = governance.usage_status(root)
-    latest = usage.get("latest")
-    usage_projection = {key: usage[key] for key in ("state", "records", "totalTokens", "subagentTokens", "rootTokens", "accuracy")}
+    latest = usage.get("preferred")
+    usage_projection = {
+        key: usage[key]
+        for key in ("state", "records", "trustCounts", "accuracy")
+    }
+    usage_projection["tokenValuesIncluded"] = False
     if isinstance(latest, dict):
         usage_projection["latest"] = {
             "usageRecordId": latest.get("usageRecordId"),
             "recordedAt": latest.get("recordedAt"),
-            "totalTokens": latest.get("totalTokens"),
-            "subagentTokens": latest.get("subagentTokens"),
             "subagentCount": latest.get("subagentCount"),
             "sourceKind": latest.get("sourceKind"),
             "sourceTrust": latest.get("sourceTrust"),
@@ -66,8 +68,34 @@ def export(root: Path) -> dict[str, Any]:
     host = host_bridge.status(root)
     policy = policy_evolution.status(root)
     drift_value = drift.status(root)
+    transaction_state = transactions.status(root)
+    checkpoint = checkpoints.status(root)
+    active_canary = policy["activeCanary"]
+    experiment = None
+    if active_canary is not None:
+        evaluation = policy_evolution.evaluate(root, active_canary["proposalId"])
+        experiment = {
+            "evaluationVersion": evaluation["evaluationVersion"],
+            "state": evaluation["state"],
+            "reasonCode": evaluation["reasonCode"],
+            "evidenceSufficient": evaluation["evidenceSufficient"],
+            "commitEligible": evaluation["commitEligible"],
+            "missingBaselineCompletions": evaluation["missingBaselineCompletions"],
+            "missingCanaryCompletions": evaluation["missingCanaryCompletions"],
+            "requiredBaselineCompletions": evaluation["requiredBaselineCompletions"],
+            "observedBaselineCompletions": evaluation["observedBaselineCompletions"],
+            "requiredCanaryCompletions": evaluation["requiredCompletions"],
+            "observedCanaryCompletions": evaluation["observedCompletions"],
+            "regressions": evaluation["regressions"],
+            "comparison": {
+                key: value
+                for key, value in evaluation["comparison"].items()
+                if key != "averageTokenDelta"
+            },
+            "tokenTrust": evaluation["comparison"]["tokenTrust"],
+        }
     return {
-        "schemaVersion": 1,
+        "schemaVersion": 2,
         "rootSha256": _root_digest(root),
         "capabilities": {
             "state": capability_state["state"],
@@ -86,6 +114,7 @@ def export(root: Path) -> dict[str, Any]:
         "hostBridge": {
             "state": host["state"],
             "completionCount": host["completionCount"],
+            "pendingEnvelopeCount": host["pendingEnvelopeCount"],
             "lateCount": host["lateCount"],
             "budgetExceededCount": host["budgetExceededCount"],
             "usageTrustCounts": host["usageTrustCounts"],
@@ -95,6 +124,22 @@ def export(root: Path) -> dict[str, Any]:
             "eventCount": policy["eventCount"],
             "ledgerHead": policy["ledgerHead"],
             "activeProposalId": policy["activeProposalId"],
+        },
+        "hostProtocol": {
+            "selectedVersion": host_bridge.HOST_PROTOCOL_VERSION,
+            "supportedVersions": list(host_bridge.SUPPORTED_PROTOCOL_VERSIONS),
+        },
+        "recovery": {
+            "state": transaction_state["state"],
+            "pendingTransactionCount": transaction_state["pendingCount"],
+            "pendingHostEnvelopeCount": host["pendingEnvelopeCount"],
+            "nextCommand": resume.next_decision(root)["command"],
+        },
+        "policyExperiment": experiment,
+        "checkpoint": {
+            "state": checkpoint["state"],
+            "matched": checkpoint["matched"],
+            "portableCopyRequired": checkpoint["portableCopyRequired"],
         },
         "drift": {
             "state": drift_value["state"],

@@ -5,13 +5,38 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Any, Literal
 
-from . import capabilities, contracts
+from . import capabilities, contracts, lifecycle
 from .project import ProjectError, ProjectPaths, load_config, write_json
 
 
 FinishPolicy = Literal["suggest", "require-current-gate"]
 FINISH_POLICIES = {"suggest", "require-current-gate"}
 DEFAULT_FINISH_POLICY: FinishPolicy = "suggest"
+
+
+def _lifecycle_consistency(root: Path, gate_state: str, work_item: dict[str, Any] | None) -> dict[str, Any]:
+    phase = lifecycle.status(root)["phase"]
+    if work_item is None:
+        state, reason = "not-applicable", "no-current-work"
+    elif work_item.get("backend") != "trellis":
+        state, reason = "not-applicable", "local-work-item"
+    elif gate_state == "aligned" and phase in {"checking", "finished"}:
+        state, reason = "consistent", "trellis-gate-and-lifecycle-aligned"
+    elif gate_state == "aligned":
+        state, reason = "attention", "trellis-gate-ahead-of-lifecycle"
+    elif phase == "finished":
+        state, reason = "attention", "hellodev-finished-without-current-trellis-gate"
+    elif phase == "checking":
+        state, reason = "attention", "hellodev-checking-awaits-current-trellis-gate"
+    else:
+        state, reason = "consistent", "gate-not-yet-required-for-active-phase"
+    return {
+        "state": state,
+        "reasonCode": reason,
+        "lifecyclePhase": phase,
+        "readOnly": True,
+        "trellisMutationPerformed": False,
+    }
 
 
 def _policy(value: Any) -> FinishPolicy:
@@ -61,6 +86,7 @@ def status(root: Path) -> dict[str, Any]:
     capability = capabilities.status(root)
     work_item = contracts.current_work_item(root)
     if work_item is None:
+        consistency = _lifecycle_consistency(root, "no-current-work", None)
         return {
             "schemaVersion": 1,
             "state": "no-current-work",
@@ -70,6 +96,7 @@ def status(root: Path) -> dict[str, Any]:
             "currentWorkItem": None,
             "validEvidence": [],
             "staleEvidenceCount": 0,
+            "lifecycleConsistency": consistency,
             "trellisMutationPerformed": False,
         }
     all_links = contracts.list_evidence_links(root, work_item["id"])
@@ -80,6 +107,7 @@ def status(root: Path) -> dict[str, Any]:
         state = "stale-evidence"
     else:
         state = "evidence-missing"
+    consistency = _lifecycle_consistency(root, state, work_item)
     return {
         "schemaVersion": 1,
         "state": state,
@@ -100,6 +128,7 @@ def status(root: Path) -> dict[str, Any]:
             for link in valid_links
         ],
         "staleEvidenceCount": len(all_links) - len(valid_links),
+        "lifecycleConsistency": consistency,
         "trellisMutationPerformed": False,
     }
 

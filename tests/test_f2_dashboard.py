@@ -12,7 +12,7 @@ from unittest.mock import patch
 PACKAGE_ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(PACKAGE_ROOT / "src"))
 
-from hellodev import capabilities, contracts, dashboard, drift, governance, host_bridge, lifecycle, optimization, policy_evolution, receipts, sagas
+from hellodev import capabilities, contracts, dashboard, drift, efficiency_cycles, governance, host_bridge, lifecycle, optimization, policy_evolution, receipts, sagas
 from hellodev.project import ProjectPaths, init_project
 
 
@@ -81,7 +81,7 @@ class F2DashboardTests(unittest.TestCase):
             ):
                 value = dashboard.snapshot(root, "instance", "2026-07-16T00:00:00Z")
 
-            self.assertEqual(value["schemaVersion"], 4)
+            self.assertEqual(value["schemaVersion"], 7)
             self.assertTrue(value["readOnly"])
             continuity = value["continuity"]
             self.assertTrue(continuity["readOnly"])
@@ -205,9 +205,19 @@ class F2DashboardTests(unittest.TestCase):
             )
             self.assertEqual(
                 set(projected["latestUsageEnvelope"]["actual"]),
-                {"totalTokens", "rootTokens", "subagentTokens", "subagentCount"},
+                {
+                    "totalTokens",
+                    "rootTokens",
+                    "subagentTokens",
+                    "subagentCount",
+                    "sourceKind",
+                    "sourceTrust",
+                    "accuracy",
+                },
             )
             self.assertEqual(projected["latestUsageEnvelope"]["actual"]["totalTokens"], 20_000)
+            self.assertEqual(projected["latestUsageEnvelope"]["actual"]["sourceTrust"], "asserted")
+            self.assertEqual(value["usage"]["displayBasis"], "latest-operator-report")
             self.assertEqual(
                 set(projected["latestReflection"]),
                 {
@@ -228,19 +238,68 @@ class F2DashboardTests(unittest.TestCase):
                 set(value["usage"]["latest"]),
                 {
                     "state",
+                    "completedAt",
                     "totalTokens",
                     "rootTokens",
                     "subagentTokens",
                     "subagentCount",
                     "sourceKind",
                     "sourceTrust",
+                    "measurement",
+                    "attestation",
                     "accuracy",
+                    "breakdown",
                 },
             )
             serialized = json.dumps(value, ensure_ascii=False)
             for canary in (private_query, private_lesson, private_task, private_context):
                 self.assertNotIn(canary, serialized)
             self.assertNotIn("recommendations", projected["latestReflection"])
+            self.assertNotIn("sourceSha256", serialized)
+            self.assertNotIn("scopeSha256", serialized)
+            self.assertEqual(self._state_files(root), before)
+
+    def test_efficiency_cycle_projection_is_filtered_read_only_and_copy_only(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = self._root(directory)
+            for number in range(20):
+                governance.record_runtime_usage(
+                    root,
+                    input_tokens=1_000,
+                    cached_input_tokens=100,
+                    output_tokens=100,
+                    reasoning_output_tokens=10,
+                    subagent_tokens=0,
+                    subagent_count=0,
+                    completed_at=f"2026-07-17T00:00:{number:02d}Z",
+                    source_sha256="a" * 64,
+                    scope_sha256=f"{number + 1:064x}",
+                    source_kind="codex-runtime",
+                    source_trust="runtime-observed",
+                )
+            efficiency_cycles.reconcile(root)
+            before = self._state_files(root)
+            value = dashboard.snapshot(root, "instance", "2026-07-17T00:01:00Z")
+
+            projected = value["efficiencyCycle"]
+            self.assertEqual(value["schemaVersion"], 7)
+            self.assertTrue(projected["readOnly"])
+            self.assertEqual(projected["windowSize"], 20)
+            self.assertEqual(projected["cycleCount"], 1)
+            self.assertEqual(projected["pendingReceiptCount"], 0)
+            self.assertEqual(projected["remainingUntilNextCycle"], 20)
+            self.assertEqual(
+                set(projected["latest"]),
+                {
+                    "id", "receiptCount", "firstCompletedAt", "lastCompletedAt",
+                    "metrics", "signals", "recommendation", "policyEffect",
+                },
+            )
+            self.assertEqual(projected["latest"]["recommendation"]["code"], "increase-context-reuse")
+            self.assertFalse(projected["latest"]["policyEffect"]["applyAllowed"])
+            serialized = json.dumps(projected, ensure_ascii=False)
+            self.assertNotIn("windowSha256", serialized)
+            self.assertNotIn("cycleSha256", serialized)
             self.assertNotIn("sourceSha256", serialized)
             self.assertNotIn("scopeSha256", serialized)
             self.assertEqual(self._state_files(root), before)
@@ -256,6 +315,8 @@ class F2DashboardTests(unittest.TestCase):
                 "schemaVersion": 1,
                 "state": "ready",
                 "completionCount": 4,
+                "pendingEnvelopeCount": 2,
+                "expiredPendingEnvelopeCount": 1,
                 "lateCount": 1,
                 "budgetExceededCount": 2,
                 "usageTrustCounts": {"host-asserted": 3, "unavailable": 1},
@@ -337,7 +398,7 @@ class F2DashboardTests(unittest.TestCase):
                 value = dashboard.snapshot(root, "instance", "2026-07-16T00:00:00Z")
 
             advanced = value["advanced"]
-            self.assertEqual(value["schemaVersion"], 4)
+            self.assertEqual(value["schemaVersion"], 7)
             self.assertEqual(advanced["host"]["completionCount"], 4)
             self.assertEqual(
                 set(advanced["host"]["latest"]),
@@ -354,8 +415,13 @@ class F2DashboardTests(unittest.TestCase):
                     advanced["host"]["command"],
                     advanced["policy"]["command"],
                     advanced["drift"]["command"],
+                    advanced["transactions"]["command"],
+                    advanced["checkpoint"]["command"],
                 },
-                {"hellodev host status", "hellodev policy status", "hellodev drift status"},
+                {
+                    "hellodev host status", "hellodev policy status", "hellodev drift status",
+                    "hellodev transaction status", "hellodev policy checkpoint status",
+                },
             )
             self.assertEqual(
                 advanced["uiCapabilities"],
@@ -414,11 +480,15 @@ class F2DashboardTests(unittest.TestCase):
         self.assertIn("Host Bridge", markup)
         self.assertIn("Policy Ledger", markup)
         self.assertIn("advancedCommands", script)
+        self.assertIn("efficiencyCycle", script)
+        self.assertIn("20-turn efficiency cycle", markup)
         advanced_block = script.split("const advancedCommands = new Set([", 1)[1].split("]);", 1)[0]
         expected_advanced_commands = {
             "hellodev host status",
             "hellodev policy status",
             "hellodev drift status",
+            "hellodev transaction status",
+            "hellodev policy checkpoint status",
         }
         self.assertEqual(set(re.findall(r'"(hellodev [^"]+)"', advanced_block)), expected_advanced_commands)
         for command in expected_advanced_commands:
@@ -433,7 +503,9 @@ class F2DashboardTests(unittest.TestCase):
             self.assertNotIn(forbidden, script)
             self.assertNotIn(forbidden, markup)
         self.assertNotIn("<input", markup)
-        self.assertIn("HELLODEV 0.11.0", markup)
+        self.assertIn("Canary Evaluation v2", markup)
+        self.assertIn("Portable checkpoint", markup)
+        self.assertIn("HELLODEV 0.12.1", markup)
 
 
 if __name__ == "__main__":

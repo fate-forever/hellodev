@@ -579,7 +579,10 @@ def _usage_envelope(
     )
     if usage_id is not None and actual_usage is not None:
         raise ProjectError("usage id and host actual usage cannot be combined")
-    actual = governance.usage_projection(governance.get_usage_record(root, usage_id)) if usage_id else actual_usage
+    usage_record = governance.get_usage_record(root, usage_id) if usage_id else None
+    if usage_record is not None and usage_record["sourceTrust"] in {"runtime-observed", "asserted-runtime"}:
+        raise ProjectError("runtime usage receipts are advisory-only and cannot mutate the 0.11.0 optimization store")
+    actual = governance.usage_projection(usage_record) if usage_record is not None else actual_usage
     if actual is not None:
         actual = _validate_actual(actual)
     return {

@@ -36,6 +36,20 @@ class V11CliTests(unittest.TestCase):
             )
         return run_cli("--root", str(root), "optimize", "proposals")["proposals"][0]["id"]
 
+    def _baseline(self, root: Path, count: int) -> None:
+        result = {
+            "outcome": "succeeded", "retryCount": 1,
+            "retrievalMode": "none", "delegationMode": "none",
+            "totalTokens": None, "subagentTokens": None, "subagentCount": 0,
+        }
+        for _ in range(count):
+            envelope = run_cli("--root", str(root), "host", "prepare", "--intent", "code")
+            run_cli(
+                "--root", str(root), "host", "complete",
+                "--envelope", json.dumps(envelope, separators=(",", ":")),
+                "--result", json.dumps(result, separators=(",", ":")),
+            )
+
     def test_host_prepare_complete_and_drift_cli(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
@@ -96,6 +110,7 @@ class V11CliTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
             run_cli("--root", str(root), "open")
+            self._baseline(root, 1)
             proposal = self._proposal(root)
             run_cli("--root", str(root), "policy", "stage", "--proposal", proposal)
             prepared = run_cli(

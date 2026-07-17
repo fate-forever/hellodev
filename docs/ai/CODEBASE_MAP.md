@@ -1,7 +1,7 @@
 # HelloDev Core codebase map
 
-Last refreshed: 2026-07-16
-Scope: HelloDev 0.11.0 host bridge and verified tighten-only policy evolution on the released 0.10.1 baseline
+Last refreshed: 2026-07-17
+Scope: HelloDev 0.12.1 reliability hardening, PEP 561 Host SDK, CI/Demo OSS surfaces, and Dashboard schema v7 on the released 0.12.0 baseline
 
 ## Source and runtime boundaries
 
@@ -22,13 +22,19 @@ HelloDev does not patch Trellis/Nocturne, merge databases, read or edit Codex/Cu
 packages/hellodev-core/
   pyproject.toml
   README.md
+  CONTRIBUTING.md                   contribution, privacy, and test contract
+  .github/workflows/ci.yml          bounded non-publishing fast/full matrix
   scripts/verify.py                 fast/full validation split
+  scripts/demo.ps1                  zero-upstream daily-flow demo
+  examples/                         minimal CLI and typed Host SDK examples
   docs/
     F1_DEMO.md                      seamless-flow regression matrix
     F2_DEMO.md                      continuity and cross-process acceptance
     OPTIMIZE_DEMO.md                0.10 advisory/reflection acceptance
     DISCLOSURE_DEMO.md              0.10.1 daily/recovery/advanced acceptance
     EVOLUTION_DEMO.md               0.11 HostEnvelope/policy/drift acceptance
+    CASE_STUDY.md                    reproducible local case and recovery evidence
+    WHY_HELLODEV.md                 product motivation, comparisons, limitations
     RELEASE.md                      build, smoke, migration gate
     ai/                             agent orientation documents
   src/hellodev/
@@ -50,14 +56,21 @@ packages/hellodev-core/
     delegation.py                   deterministic agent-count/context-budget contract
     optimization.py                 0.10 records/proposals plus read-only advanced next hint
     host_bridge.py                  bounded prepare/validated completion bridge for external hosts
+    host_sdk.py                     typed Python HostClient and protocol negotiation
+    py.typed                        PEP 561 typed-package marker
+    schemas/*.json                  bundled HostEnvelope/HostResult/protocol schemas
     policy_evolution.py             stage/cancel/canary/commit/revert and local hash chain
+    transactions.py                 append-only policy authorization/receipt/ledger WAL
+    checkpoints.py                  portable policy ledger-head export and verification
     drift.py                        read-only structural/runtime policy-drift projection
     audit.py                        privacy-preserving local audit projection and fix hints
     state_lock.py                   shared cross-process locks for small project-local stores
     intelligence.py                 classification and narrow policy plans
     adapters/trellis.py             Trellis native gateway/intents
     adapters/nocturne.py            public stdio MCP client
-    governance.py                   delegation and asserted operator-usage records
+    governance.py                   schema-v1 manual ledger plus additive runtime-receipt sidecar and trust-aware projections
+    usage_collector.py              bounded previous-completed-turn collector plus oldest-first backfill
+    efficiency_cycles.py            trusted non-overlapping 20-turn deterministic reflection sidecar
     dashboard.py + dashboard_assets read/copy-only loopback Control Center
   tests/
     test_f1_cli.py                  unified flow and profile integration
@@ -72,6 +85,11 @@ packages/hellodev-core/
     test_host_bridge.py             envelope bindings, completion trust/privacy/idempotency
     test_policy_evolution.py        stage/cancel/canary/exhaust/evaluate/commit/revert/integrity matrix
     test_v11_cli.py                 public 0.11 grammar and closed-loop CLI path
+    test_usage_collector.py         completed-turn/backfill/subagent/privacy/idempotency/fail-closed matrix
+    test_efficiency_cycles.py       fixed-window/advice/tamper/disclosure/policy-boundary matrix
+    test_v12_reliability.py         WAL recovery, SDK, Canary v2, checkpoint, doctor/audit matrix
+    test_v121_polish.py             receipt/WAL gap, concurrent recovery, CI checkpoint, typed SDK matrix
+    test_v121_oss.py                CI/package/docs/example consistency and runnable SDK example
 ```
 
 ## F1 request flow
@@ -220,6 +238,52 @@ Every policy event carries `previousEventSha256` and `eventSha256`. This detects
 
 `drift.status` is read-only and returns `clean|detected|unavailable|invalid`. It aggregates bounded capability/WorkItem freshness, canary expiry, optional checkpoint mismatch, current-head completions, declared budget/retry/subagent violations, and informational late completion. Invalid stores are projected explicitly and not repaired.
 
+## 0.11.2 completed-turn usage and efficiency-cycle flow
+
+```text
+new Codex turn
+  -> usage collect
+  -> CODEX_THREAD_ID automatic discovery, or caller-selected --thread-id / --session import
+  -> parse only bounded session_meta/task_started/task_complete/token_count/sub_agent_activity events
+  -> select the latest already-completed root turn
+  -> cumulative root-interval delta
+  -> recursively add complete descendant subagent intervals (max 32)
+  -> persist additive usage-receipts.json with hashes/counts only; preserve usage.json schema v1
+  -> usage sync backfills oldest unrecorded completed turns
+  -> every 20 runtime-observed exact receipts create one hash-bound ReflectionCycle
+  -> next/status / current Dashboard schema v7 expose one advisory efficiency hint
+  -> usage display still prefers runtime-observed, then asserted-runtime, then asserted
+```
+
+The collector cannot finalize the response currently being generated because its `task_complete` boundary does not yet exist. It is intentionally a next-turn operation. Automatic Desktop discovery yields `sourceKind=codex-runtime`, `sourceTrust=runtime-observed`, `measurement=exact`, `attestation=none`, and `estimated=false`; explicit thread/home/session selection is instead `codex-runtime-import` / `asserted-runtime`. “Exact” is limited to deterministic deltas over completed Codex event metadata; it is not provider-signed, provider-attested, or provider-verified.
+
+The stored usage record contains token counts, `completedAt`, trust metadata, and source/scope/receipt SHA-256 values. It never stores rollout text, prompt/response content, raw events, thread/turn/subagent ids, or session paths. No completed turn returns `unavailable` without writing. Missing or incomplete descendant sessions, missing interval snapshots, unsafe paths, invalid shapes, count regression, or same-turn conflicts fail closed without persisting partial usage. Repeated collection and sync are idempotent. Manual `usage record` remains `operator-report/asserted`; explicit runtime selection remains `asserted-runtime`. Neither can enter ReflectionCycle. Runtime receipts and cycles remain outside the 0.11.0 optimization schema for rollback compatibility.
+
+ReflectionCycle uses stable receipt insertion order and fixed, non-overlapping windows. Its additive sidecar stores only aggregate metrics, deterministic signal codes, one allowlisted command, and a strict non-effective policy boundary. It calls no model or adapter, and safety/recovery routing preempts its finished-phase disclosure.
+
+## 0.12 reliability and host-contract flow
+
+```text
+policy approval validated
+  -> transactions.json authorized event (no raw token)
+  -> approval plan marked consumed and transaction-bound
+  -> token-consumed event
+  -> hash-only authorization receipt
+  -> receipt-recorded event
+  -> idempotent policy ledger append
+  -> ledger-applied event
+
+HostClient.prepare(HostRequest)
+  -> protocol negotiation + bounded HostEnvelope
+  -> sanitized pending metadata only
+  -> external host execution
+  -> HostClient.complete(HostResult)
+  -> sanitized HostCompletion + host-asserted/unavailable trust
+  -> bounded baseline/canary Evaluation v2
+```
+
+`next/resume` checks pending transactions before every other branch, then stale capabilities, pending HostEnvelopes, incomplete Sagas, stale WorkItems, Canary evaluation, lifecycle/gate progress, and optional efficiency advice. It returns one command only. Portable checkpoints bind the policy ledger sequence/head and protocol version; only an independently retained copy can detect a complete local-history rewrite.
+
 ## Unified intent ownership
 
 | Intent | Normal route | Write boundary |
@@ -233,6 +297,7 @@ Every policy event carries `previousEventSha256` and `eventSha256`. This detects
 | `host` (advanced command family) | Read-only envelope preparation and validated external result ingestion | Prepare grants no authority; complete stores only a sanitized host assertion. |
 | `policy` (advanced command family) | Local stage/cancel/canary/evaluate/commit/revert governance | Stage/cancel are non-effective, evaluate is read-only, and canary/commit/revert require separate exact approvals. |
 | `drift` (advanced command family) | Read-only integrity/runtime projection | No repair or policy mutation. |
+| `usage collect` (advanced observability) | Previous completed Codex rollout turn | Local read plus hash/count-only usage receipt; no current-turn, provider-attestation, authorization, or evidence authority. |
 
 Unknown intents and unsupported task operations fail closed.
 
@@ -246,7 +311,7 @@ Unknown intents and unsupported task operations fail closed.
 
 Optimization uses allowlisted structured values, not free-form model output. Outcomes are `succeeded|partial|failed|blocked`; retrieval is `none|local|narrow-memory`; delegation is `none|planned|rejected|executed`.
 
-Actual usage is unavailable unless a record is explicitly linked. Existing usage records are operator assertions with hashed source/scope in optimizer projections. Missing usage is never coerced to zero or estimated.
+Actual optimization usage is unavailable unless a compatible operator/host record is explicitly linked. `usage record` creates an operator assertion. `usage collect` creates a display-only completed-turn receipt: runtime-observed under automatic Desktop discovery or asserted-runtime under explicit selection. Missing usage is never coerced to zero or estimated, and runtime receipts are not written into the preserved 0.11.0 DecisionTrace schema.
 
 Plan exposes only `reflection.plannedDeepReflectionCeiling` plus `eligibility=anomaly-and-reported-usage-required`; this is not an eligibility decision. A ReflectionReport's deep reflection is host eligibility metadata only. It requires a deterministic anomaly plus positive linked reported total, and its ceiling is `min(500,floor(reportedTotal*0.05))`. Core always reports `modelCalls=[]`.
 
@@ -262,7 +327,7 @@ EvolutionProposal generation remains non-self-applicable inside `optimization.py
 - `lease-allowed`: matching trusted-local Trellis read lease.
 - `profile-auto`: current autopilot-read policy covers the read.
 
-Policy changes and all external writes are token-required. trusted-local leases bind root, content fingerprint, executable identity, intent registry, read class, and expiry. autopilot-read additionally requires a configured domain allowlist, result ceiling, and expiry at most 24 hours ahead.
+Profile/gate-policy changes, canary/commit/revert, and all external writes are token-required. Non-effective evolution stage/cancel is the documented local-ledger exception. trusted-local leases bind root, content fingerprint, executable identity, intent registry, read class, and expiry. autopilot-read additionally requires a configured domain allowlist, result ceiling, and expiry at most 24 hours ahead.
 
 Approval prepare/consume read-modify-write is serialized in-process and cross-process. Adapter payloads include current executable and file-backed script identities, so a dependency replacement after prepare invalidates the token. MCP tool results explicitly marked `isError` produce failed receipts; a failed Nocturne Saga step becomes partial.
 
@@ -270,9 +335,17 @@ Profile relaxation is an F1 unified-path contract (`do task`, `do validate`, and
 
 Receipts are schema v3 and hash-only. v1/v2 stores normalize to `strict`/`token-required`; they persist as v3 only on a later receipt write. New typed gate/test receipts may carry `evidenceBindingSha256`; only matching execution-bound evidence can reconcile to a WorkItem. Typed Trellis gate/test plus a separate verification receipt is required before Nocturne persistence.
 
+## 0.12.1 reliability and OSS polish
+
+0.12.1 keeps Host protocol 1.0 and every 0.12.0 state schema. The additional transaction tests cover a receipt that persisted before the WAL receipt phase and multiple processes recovering the same transaction; the existing `policy-transaction` lock makes all workers converge on one receipt and one policy effect. Checkpoint validation now requires lowercase SHA-256 and bounded regular files, while `--require-match` preserves structured output and returns exit code 2 for CI mismatch.
+
+The Host SDK is a PEP 561 package (`py.typed`) with public typed errors and pending/reconcile/abandon surfaces. Core still stores no HostEnvelope context: a valid pending record routes to exact `host pending <id>`, which declares whether the external host must continue and provides a separate abandon command. Canary v2 adds missing-evidence and commit-eligibility diagnostics without changing its pass/fail rules.
+
+The GitHub Actions workflow is non-publishing: push/PR/manual triggers; concurrency group `hellodev-ci-${{ github.ref }}` with newer same-ref runs cancelling in-progress runs; `fail-fast=false`; Ubuntu/Windows × Python 3.10/3.12 fast; Ubuntu 3.12 full after fast; wheel artifact retained seven days. PyPI upload and GitHub release remain external actions requiring separate authorization. The minimal Demo and Host SDK example use no Trellis/Nocturne installation.
+
 ## Dashboard boundary
 
-The Control Center schema v4 is a read/copy-only projection. It may display F2 state, numeric/private optimization counts, asserted usage numbers, proposal staleness, reflection summaries, and filtered host/policy/drift counts/status. The only new advanced commands it may expose are `hellodev host status`, `hellodev policy status`, and `hellodev drift status`.
+The Control Center schema v7 is a read/copy-only projection. It may display F2 state, numeric/private optimization counts, trust-labelled usage, filtered ReflectionCycle progress/metrics/recommendation, pending transactions/HostEnvelopes, Canary v2 comparison, checkpoint state, Host protocol, proposal staleness, and filtered host/policy/drift status. It never exposes cycle/receipt/window hashes or an execution endpoint. Usage display must not claim it belongs to the response currently being generated.
 
 It does not expose full envelopes, policy values, receipts/hashes, raw findings, repair commands, or complete/stage/cancel/canary/commit/revert controls. `uiCapabilities` fixes `copyOnly=true`, `applyAllowed=false`, `commitAllowed=false`, `revertAllowed=false`, and `actionApiAvailable=false`. No dashboard execution API exists.
 
@@ -283,11 +356,11 @@ python scripts\verify.py --scope fast
 python scripts\verify.py --scope full
 ```
 
-Full 0.11.0 release validation additionally requires unchanged F1/F2/0.10 optimization/0.10.1 disclosure regressions; HostEnvelope/completion stdin/trust/privacy checks; the stage/cancel/canary/exhaust/evaluate/commit/revert matrix; hash-chain/external-checkpoint and drift checks; source snapshot; no-cache wheel build; wheel hash; fresh isolated install; and schema-v4 read/copy-only dashboard smoke.
+Full 0.12.0 release validation adds WAL crash/recovery phases, typed SDK/schema/protocol negotiation, bounded baseline/canary comparison, checkpoint divergence/tamper, one-command recovery priority, compatibility diagnostics, audit privacy, and schema-v7 copy-only Dashboard smoke to all immutable 0.11.2 regressions. Historical release evidence remains unchanged.
 
 ## Verification basis
 
-- **Fact — full source read:** `cli.py`, `host_bridge.py`, `policy_evolution.py`, and `drift.py` define the public grammar and contracts summarized above.
-- **Fact — behavior verified by tests:** `test_host_bridge.py`, `test_policy_evolution.py`, `test_v11_cli.py`, and dashboard regression tests cover the primary 0.11 paths and fail-closed boundaries.
+- **Fact — full source read:** `cli.py`, `transactions.py`, `host_sdk.py`, `host_bridge.py`, `checkpoints.py`, `policy_evolution.py`, `resume.py`, `audit.py`, `dashboard.py`, `pyproject.toml`, and `.github/workflows/ci.yml` define the public 0.12.1 contracts summarized above.
+- **Fact — behavior verified by focused tests:** `test_v121_polish.py`, `test_v121_oss.py`, and the 0.12/policy/host/resume/Dashboard regressions cover the new paths; artifact evidence still requires the final release gate.
 - **Fact — inherited then verified:** the daily F1/F2/optimization/disclosure contracts originated in earlier release docs and remain exercised by the existing regression suites.
 - **Release evidence boundary:** wheel/source hashes, isolated-install results, and independent release paths are versioned in the root development ledger and release report rather than duplicated in this architecture map.

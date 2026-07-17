@@ -15,7 +15,10 @@ from .state_lock import locked_state
 
 
 SCHEMA_VERSION = 1
+HOST_PROTOCOL_VERSION = "1.0"
+SUPPORTED_PROTOCOL_VERSIONS = (HOST_PROTOCOL_VERSION,)
 MAX_COMPLETIONS = 100_000
+MAX_ENVELOPES = 100_000
 OUTCOMES = optimization.OUTCOMES
 RETRIEVAL_MODES = optimization.RETRIEVAL_MODES
 DELEGATION_MODES = optimization.DELEGATION_MODES
@@ -188,6 +191,196 @@ def _validate_completion(value: Any) -> dict[str, Any]:
     return value
 
 
+def protocol_info(requested_versions: list[str] | tuple[str, ...] | None = None) -> dict[str, Any]:
+    requested = list(requested_versions or SUPPORTED_PROTOCOL_VERSIONS)
+    if not requested or len(requested) > 16 or not all(isinstance(item, str) and item for item in requested):
+        raise ProjectError("host protocol versions must be a non-empty bounded string list")
+    selected = next((item for item in SUPPORTED_PROTOCOL_VERSIONS if item in requested), None)
+    if selected is None:
+        raise ProjectError(
+            f"no compatible Host protocol version; core supports {','.join(SUPPORTED_PROTOCOL_VERSIONS)}"
+        )
+    return {
+        "schemaVersion": 1,
+        "selectedVersion": selected,
+        "supportedVersions": list(SUPPORTED_PROTOCOL_VERSIONS),
+        "requestedVersions": requested,
+        "compatible": True,
+        "compatibilityPolicy": "same-major-explicit-version",
+        "executionPerformed": False,
+    }
+
+
+def _envelope_record_payload(record: dict[str, Any]) -> dict[str, Any]:
+    return {key: value for key, value in record.items() if key != "recordSha256"}
+
+
+def _validate_envelope_record(record: Any) -> dict[str, Any]:
+    fields = {
+        "schemaVersion", "id", "envelopeSha256", "intent", "workItemId", "protocolVersion",
+        "createdAt", "expiresAt", "state", "completionId", "updatedAt", "recordSha256",
+    }
+    if not isinstance(record, dict) or set(record) != fields or record.get("schemaVersion") != 1:
+        raise ProjectError("invalid pending HostEnvelope record fields")
+    if not isinstance(record.get("id"), str) or not record["id"].startswith("host-envelope-"):
+        raise ProjectError("invalid pending HostEnvelope id")
+    if not isinstance(record.get("envelopeSha256"), str) or len(record["envelopeSha256"]) != 64:
+        raise ProjectError("invalid pending HostEnvelope digest")
+    if record.get("protocolVersion") != HOST_PROTOCOL_VERSION or record.get("state") not in {"pending", "completed", "abandoned"}:
+        raise ProjectError("invalid pending HostEnvelope protocol or state")
+    if record.get("workItemId") is not None and not isinstance(record["workItemId"], str):
+        raise ProjectError("invalid pending HostEnvelope WorkItem")
+    if not isinstance(record.get("intent"), str) or not record["intent"]:
+        raise ProjectError("invalid pending HostEnvelope intent")
+    if record["state"] == "completed":
+        if not isinstance(record.get("completionId"), str) or not record["completionId"].startswith("host-completion-"):
+            raise ProjectError("completed HostEnvelope requires a completion id")
+    elif record.get("completionId") is not None:
+        raise ProjectError("non-completed HostEnvelope cannot carry a completion id")
+    for field in ("createdAt", "expiresAt", "updatedAt"):
+        _parse_utc(record.get(field), f"pending HostEnvelope {field}")
+    if record.get("recordSha256") != _canonical_digest(_envelope_record_payload(record)):
+        raise ProjectError("pending HostEnvelope record digest mismatch")
+    return record
+
+
+def _load_envelopes(root: str | Path) -> tuple[Path, dict[str, Any]]:
+    resolved = resolve_root(root)
+    load_config(resolved)
+    path = ProjectPaths(resolved).host_envelopes_file
+    if not path.exists():
+        return resolved, {"schemaVersion": 1, "records": []}
+    if path.is_symlink() or not path.is_file():
+        raise ProjectError("refusing unsafe pending HostEnvelope store")
+    try:
+        store = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError) as error:
+        raise ProjectError(f"invalid pending HostEnvelope store: {error}") from error
+    if not isinstance(store, dict) or set(store) != {"schemaVersion", "records"} or store.get("schemaVersion") != 1:
+        raise ProjectError("invalid pending HostEnvelope store schema")
+    if not isinstance(store.get("records"), list) or len(store["records"]) > MAX_ENVELOPES:
+        raise ProjectError("invalid pending HostEnvelope record list")
+    records = [_validate_envelope_record(item) for item in store["records"]]
+    ids = [item["id"] for item in records]
+    if len(ids) != len(set(ids)):
+        raise ProjectError("duplicate pending HostEnvelope id")
+    return resolved, {"schemaVersion": 1, "records": records}
+
+
+def _record_pending_envelope(root: Path, envelope: dict[str, Any]) -> dict[str, Any]:
+    with locked_state(root, "host-envelopes"):
+        _, store = _load_envelopes(root)
+        existing = next((item for item in store["records"] if item["id"] == envelope["id"]), None)
+        if existing is not None:
+            if existing["envelopeSha256"] != envelope["envelopeSha256"]:
+                raise ProjectError("HostEnvelope id conflicts with pending metadata")
+            return existing
+        record = {
+            "schemaVersion": 1,
+            "id": envelope["id"],
+            "envelopeSha256": envelope["envelopeSha256"],
+            "intent": envelope["intent"],
+            "workItemId": envelope["workItemId"],
+            "protocolVersion": HOST_PROTOCOL_VERSION,
+            "createdAt": envelope["createdAt"],
+            "expiresAt": envelope["expiresAt"],
+            "state": "pending",
+            "completionId": None,
+            "updatedAt": utc_now(),
+            "recordSha256": "",
+        }
+        record["recordSha256"] = _canonical_digest(_envelope_record_payload(record))
+        _validate_envelope_record(record)
+        store["records"].append(record)
+        write_json(ProjectPaths(root).host_envelopes_file, store)
+        return record
+
+
+def _mark_envelope_completed(root: Path, envelope_id: str, completion_id: str) -> dict[str, Any]:
+    with locked_state(root, "host-envelopes"):
+        _, store = _load_envelopes(root)
+        record = next((item for item in store["records"] if item["id"] == envelope_id), None)
+        if record is None:
+            raise ProjectError("pending HostEnvelope metadata is missing")
+        if record["state"] == "completed":
+            if record["completionId"] != completion_id:
+                raise ProjectError("HostEnvelope completion metadata conflicts")
+            return record
+        if record["state"] == "abandoned":
+            raise ProjectError("abandoned HostEnvelope cannot be completed")
+        record.update({"state": "completed", "completionId": completion_id, "updatedAt": utc_now()})
+        record["recordSha256"] = _canonical_digest(_envelope_record_payload(record))
+        _validate_envelope_record(record)
+        write_json(ProjectPaths(root).host_envelopes_file, store)
+        return record
+
+
+def abandon(root: str | Path, envelope_id: str) -> dict[str, Any]:
+    resolved = resolve_root(root)
+    with locked_state(resolved, "host-envelopes"):
+        _, store = _load_envelopes(resolved)
+        record = next((item for item in store["records"] if item["id"] == envelope_id), None)
+        if record is None:
+            raise ProjectError("pending HostEnvelope not found")
+        if record["state"] == "completed":
+            raise ProjectError("completed HostEnvelope cannot be abandoned")
+        if record["state"] == "abandoned":
+            return {"schemaVersion": 1, "state": "existing", "envelopeId": envelope_id}
+        record.update({"state": "abandoned", "updatedAt": utc_now()})
+        record["recordSha256"] = _canonical_digest(_envelope_record_payload(record))
+        _validate_envelope_record(record)
+        write_json(ProjectPaths(resolved).host_envelopes_file, store)
+        return {"schemaVersion": 1, "state": "abandoned", "envelopeId": envelope_id}
+
+
+def _envelope_projection(record: dict[str, Any], current: datetime | None = None) -> dict[str, Any]:
+    observed = current or datetime.now(timezone.utc)
+    expired = _parse_utc(record["expiresAt"], "HostEnvelope expiry") <= observed
+    pending = record["state"] == "pending"
+    return {
+        "schemaVersion": 1,
+        "id": record["id"],
+        "state": record["state"],
+        "intent": record["intent"],
+        "workItemId": record["workItemId"],
+        "protocolVersion": record["protocolVersion"],
+        "createdAt": record["createdAt"],
+        "expiresAt": record["expiresAt"],
+        "updatedAt": record["updatedAt"],
+        "completionId": record["completionId"],
+        "expired": expired,
+        "externalHostContinuationRequired": pending and not expired,
+        "inspectionCommand": f"hellodev host pending {record['id']}",
+        "abandonCommand": f"hellodev host abandon {record['id']}" if pending else None,
+        "recoveryCommand": (
+            f"hellodev host abandon {record['id']}"
+            if pending and expired
+            else f"hellodev host pending {record['id']}"
+            if pending
+            else None
+        ),
+        "contextPersisted": False,
+        "executionPerformed": False,
+        "persistencePerformed": False,
+    }
+
+
+def envelope_status(root: str | Path, envelope_id: str) -> dict[str, Any]:
+    if not isinstance(envelope_id, str) or not envelope_id.startswith("host-envelope-"):
+        raise ProjectError("invalid pending HostEnvelope id")
+    records = _load_envelopes(root)[1]["records"]
+    record = next((item for item in records if item["id"] == envelope_id), None)
+    if record is None:
+        raise ProjectError("pending HostEnvelope not found")
+    return _envelope_projection(record)
+
+
+def pending_envelopes(root: str | Path) -> list[dict[str, Any]]:
+    current = datetime.now(timezone.utc)
+    records = _load_envelopes(root)[1]["records"]
+    return [_envelope_projection(item, current) for item in records if item["state"] == "pending"]
+
+
 def _load_store(root: str | Path) -> tuple[Path, dict[str, Any]]:
     resolved = resolve_root(root)
     load_config(resolved)
@@ -219,11 +412,15 @@ def list_completions(root: str | Path) -> list[dict[str, Any]]:
 
 def status(root: str | Path) -> dict[str, Any]:
     completions = list_completions(root)
+    pending = pending_envelopes(root)
     latest = completions[-1] if completions else None
     return {
         "schemaVersion": SCHEMA_VERSION,
-        "state": "ready" if completions else "unavailable",
+        "state": "ready" if completions else "pending" if pending else "unavailable",
         "completionCount": len(completions),
+        "pendingEnvelopeCount": len(pending),
+        "expiredPendingEnvelopeCount": sum(1 for item in pending if item["expired"]),
+        "latestPendingEnvelope": pending[-1] if pending else None,
         "lateCount": sum(1 for item in completions if item["late"]),
         "budgetExceededCount": sum(1 for item in completions if item["budgetState"] == "exceeded"),
         "usageTrustCounts": {
@@ -366,7 +563,9 @@ def prepare(
     provisional = _canonical_digest({key: value for key, value in envelope.items() if key not in {"id", "envelopeSha256"}})
     envelope["id"] = f"host-envelope-{provisional[:16]}"
     envelope["envelopeSha256"] = _canonical_digest({key: value for key, value in envelope.items() if key != "envelopeSha256"})
-    return _validate_envelope(envelope)
+    validated = _validate_envelope(envelope)
+    _record_pending_envelope(resolved, validated)
+    return validated
 
 
 def _current_bindings(root: Path, envelope: dict[str, Any]) -> dict[str, Any]:
@@ -389,9 +588,49 @@ def _current_bindings(root: Path, envelope: dict[str, Any]) -> dict[str, Any]:
     }
 
 
+def reconcile(root: str | Path, envelope_value: Any) -> dict[str, Any]:
+    """Reconcile retained host-owned envelope data with sanitized local metadata."""
+    resolved = resolve_root(root)
+    envelope = _validate_envelope(envelope_value)
+    record = envelope_status(resolved, envelope["id"])
+    if record["state"] == "abandoned":
+        raise ProjectError("abandoned HostEnvelope cannot be reconciled")
+    existing = next(
+        (item for item in list_completions(resolved) if item["envelopeSha256"] == envelope["envelopeSha256"]),
+        None,
+    )
+    if existing is not None:
+        changed = record["state"] != "completed"
+        _mark_envelope_completed(resolved, envelope["id"], existing["id"])
+        return {
+            "schemaVersion": 1,
+            "state": "completed",
+            "envelopeId": envelope["id"],
+            "completionId": existing["id"],
+            "externalHostContinuationRequired": False,
+            "persistencePerformed": changed,
+        }
+    if record["state"] == "completed":
+        raise ProjectError("HostEnvelope metadata references a missing completion")
+    if _current_bindings(resolved, envelope) != envelope["bindings"]:
+        raise ProjectError("HostEnvelope bindings are stale; abandon or prepare a new envelope")
+    return {
+        "schemaVersion": 1,
+        "state": "expired" if record["expired"] else "pending",
+        "envelopeId": envelope["id"],
+        "completionId": None,
+        "envelopeMatched": True,
+        "expired": record["expired"],
+        "externalHostContinuationRequired": not record["expired"],
+        "abandonCommand": record["abandonCommand"],
+        "persistencePerformed": False,
+    }
+
+
 def complete(root: str | Path, envelope_value: Any, result_value: Any) -> dict[str, Any]:
     resolved = resolve_root(root)
     envelope = _validate_envelope(envelope_value)
+    _record_pending_envelope(resolved, envelope)
     result = _validate_result(result_value)
     result_sha256 = _canonical_digest(result)
     with locked_state(resolved, "host-completions"):
@@ -400,6 +639,7 @@ def complete(root: str | Path, envelope_value: Any, result_value: Any) -> dict[s
         if existing is not None:
             if existing["resultSha256"] != result_sha256:
                 raise ProjectError("HostEnvelope is already completed with a different result")
+            _mark_envelope_completed(resolved, envelope["id"], existing["id"])
             return {
                 "schemaVersion": SCHEMA_VERSION,
                 "state": "existing",
@@ -466,6 +706,7 @@ def complete(root: str | Path, envelope_value: Any, result_value: Any) -> dict[s
         _validate_completion(completion)
         store["completions"].append(completion)
         write_json(ProjectPaths(resolved).host_completions_file, store)
+        _mark_envelope_completed(resolved, envelope["id"], completion["id"])
     return {
         "schemaVersion": SCHEMA_VERSION,
         "state": "completed",

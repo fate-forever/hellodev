@@ -8,7 +8,7 @@
 </head>
 <body>
   <header class="topbar">
-    <div><span class="eyebrow">HELLODEV 0.11.0</span><h1>Control Center</h1></div>
+    <div><span class="eyebrow">HELLODEV 0.12.1</span><h1>Control Center</h1></div>
     <div class="health"><span id="health-dot"></span><span id="health-text">连接中</span></div>
   </header>
   <nav aria-label="主导航" id="tabs">
@@ -27,7 +27,7 @@
         <article><span>阶段</span><strong id="phase">—</strong></article>
         <article><span>任务</span><strong id="tasks">—</strong></article>
         <article><span>能力缓存</span><strong id="cache">—</strong></article>
-        <article><span>Token</span><strong id="tokens">—</strong></article>
+        <article><span>上一轮 Token</span><strong id="tokens">—</strong></article>
       </div>
       <div class="split">
         <section><h2>下一步</h2><div id="next-action" class="stack"></div></section>
@@ -51,6 +51,12 @@
         <article><span>EvolutionProposal</span><strong id="optimization-proposals">—</strong></article>
         <article><span>过期 Proposal</span><strong id="optimization-stale">—</strong></article>
       </div>
+      <div class="metrics optimization-metrics">
+        <article><span>ReflectionCycle</span><strong id="cycle-count">—</strong></article>
+        <article><span>Next cycle</span><strong id="cycle-progress">—</strong></article>
+        <article><span>Turns remaining</span><strong id="cycle-remaining">—</strong></article>
+      </div>
+      <section class="block"><h2>20-turn efficiency cycle</h2><div id="efficiency-cycle" class="stack"></div></section>
       <div class="split">
         <section><h2>Optimize 状态</h2><div id="optimization-status" class="stack"></div></section>
         <section><h2>最近 Usage Envelope</h2><div id="optimization-usage" class="stack"></div></section>
@@ -68,6 +74,12 @@
         <article><span>Policy events</span><strong id="policy-events">—</strong></article>
         <article><span>Drift findings</span><strong id="drift-findings">—</strong></article>
       </div>
+      <div class="metrics advanced-metrics">
+        <article><span>Pending transactions</span><strong id="pending-transactions">—</strong></article>
+        <article><span>Pending envelopes</span><strong id="pending-envelopes">—</strong></article>
+        <article><span>Checkpoint</span><strong id="checkpoint-state">—</strong></article>
+        <article><span>Host protocol</span><strong id="host-protocol">—</strong></article>
+      </div>
       <div class="split">
         <section><h2>Host Bridge</h2><div id="host-status" class="stack"></div></section>
         <section><h2>Policy Ledger</h2><div id="policy-status" class="stack"></div></section>
@@ -76,6 +88,11 @@
         <section><h2>Drift</h2><div id="drift-status" class="stack"></div></section>
         <section><h2>只读命令</h2><div id="advanced-actions" class="stack"></div></section>
       </div>
+      <div class="split block">
+        <section><h2>Transaction recovery</h2><div id="transaction-status" class="stack"></div></section>
+        <section><h2>Canary Evaluation v2</h2><div id="canary-evaluation" class="stack"></div></section>
+      </div>
+      <section class="block"><h2>Portable checkpoint</h2><div id="checkpoint-status" class="stack"></div></section>
       <section class="block"><h2>UI 权限边界</h2><div id="advanced-capabilities" class="stack"></div></section>
     </section>
 

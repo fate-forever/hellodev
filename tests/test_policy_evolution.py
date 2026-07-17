@@ -42,6 +42,14 @@ class PolicyEvolutionTests(unittest.TestCase):
             "subagentCount": subagents,
         }
 
+    def _baseline(self, root: Path, count: int) -> None:
+        for _ in range(count):
+            host_bridge.complete(
+                root,
+                host_bridge.prepare(root, "code", total_token_ceiling=2_000),
+                self._result(),
+            )
+
     def test_missing_policy_is_read_only_and_uses_defaults(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             root = self._root(directory)
@@ -124,6 +132,7 @@ class PolicyEvolutionTests(unittest.TestCase):
     def test_canary_turn_limit_exhausts_runtime_overlay_and_stales_prepared_work(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             root = self._root(directory)
+            self._baseline(root, 1)
             proposal_id = self._proposal(root)
             policy_evolution.stage(root, proposal_id)
             action = policy_evolution.canary_action(root, proposal_id, 1, 3_600)
@@ -158,6 +167,7 @@ class PolicyEvolutionTests(unittest.TestCase):
     def test_canary_commit_cancelled_stage_and_immediate_revert_form_a_verified_loop(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             root = self._root(directory)
+            self._baseline(root, 3)
             proposal_id = self._proposal(root)
             policy_evolution.stage(root, proposal_id)
             action = policy_evolution.canary_action(root, proposal_id, 3, 3_600)
@@ -221,6 +231,7 @@ class PolicyEvolutionTests(unittest.TestCase):
     def test_revert_restores_only_the_latest_commit_and_cannot_cross_two_levels(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             root = self._root(directory)
+            self._baseline(root, 1)
             first_proposal_id = self._proposal(root)
             policy_evolution.stage(root, first_proposal_id)
             first_canary = policy_evolution.canary_action(root, first_proposal_id, 1, 3_600)
@@ -235,6 +246,8 @@ class PolicyEvolutionTests(unittest.TestCase):
             first_commit = policy_evolution.commit_action(root, first_proposal_id)
             policy_evolution.commit(root, first_proposal_id, self._authorize(root, first_commit))
             self.assertEqual(policy_evolution.status(root)["committedPolicy"]["retry.maxAttempts"], 2)
+
+            self._baseline(root, 1)
 
             for retries in (2, 3, 4):
                 optimization.reflect(root, "code", "L1", "partial", retry_count=retries)

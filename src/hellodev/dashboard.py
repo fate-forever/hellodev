@@ -5,7 +5,7 @@ from http import HTTPStatus
 from http.cookies import SimpleCookie
 from http.server import BaseHTTPRequestHandler,ThreadingHTTPServer
 from pathlib import Path
-from . import capabilities,contracts,drift,gates,host_bridge,lifecycle,optimization,policy_evolution,receipts,resume,sagas
+from . import capabilities,checkpoints,contracts,drift,efficiency_cycles,gates,host_bridge,lifecycle,optimization,policy_evolution,receipts,resume,sagas,transactions
 from .governance import usage_status
 from .project import ProjectError,ProjectPaths,list_tasks,load_config,utc_now,write_json
 
@@ -68,7 +68,17 @@ def stop_dashboard(root:Path):
  with contextlib.suppress(OSError):state_path.unlink();control_path.unlink()
  return {"status":"stopped","running":False,"instanceId":value.get("instanceId")}
 def _continuity_snapshot(root:Path):
- projection=resume.build(root);gate=gates.status(root);saga_states=sagas.list_sagas(root)
+ try:
+  projection=resume.build(root);gate=gates.status(root);saga_states=sagas.list_sagas(root)
+ except ProjectError:
+  return {
+   "schemaVersion":1,"state":"invalid","readOnly":True,"executionPerformed":False,
+   "resume":{"lifecyclePhase":None,"capabilityState":"invalid","next":None},
+   "currentWorkItem":None,
+   "gate":{"state":"invalid","finishPolicy":"unavailable","capabilityState":"invalid","validEvidenceCount":0,"staleEvidenceCount":0,"lifecycleConsistency":None,"trellisMutationPerformed":False},
+   "incompleteSagas":[],"lessonProposals":[],
+   "auditSummary":{"workItems":0,"lessonProposals":0,"evidenceLinks":0,"incompleteSagas":0},
+  }
  incomplete=[]
  for state in saga_states:
   if state["phase"] in resume.INCOMPLETE_SAGA_PHASES:
@@ -83,20 +93,27 @@ def _continuity_snapshot(root:Path):
   "executionPerformed":False,
   "resume":{"lifecyclePhase":projection["lifecyclePhase"],"capabilityState":projection["capabilityState"],"next":projection["next"]},
   "currentWorkItem":projection["currentWorkItem"],
-  "gate":{"state":gate["state"],"finishPolicy":gate["finishPolicy"],"capabilityState":gate["capabilityState"],"validEvidenceCount":len(gate["validEvidence"]),"staleEvidenceCount":gate["staleEvidenceCount"],"trellisMutationPerformed":False},
+  "gate":{"state":gate["state"],"finishPolicy":gate["finishPolicy"],"capabilityState":gate["capabilityState"],"validEvidenceCount":len(gate["validEvidence"]),"staleEvidenceCount":gate["staleEvidenceCount"],"lifecycleConsistency":gate["lifecycleConsistency"],"trellisMutationPerformed":False},
   "incompleteSagas":incomplete,
   "lessonProposals":lessons,
   "auditSummary":{"workItems":len(contracts.list_work_items(root)),"lessonProposals":len(lessons),"evidenceLinks":len(contracts.list_evidence_links(root)),"incompleteSagas":len(incomplete)},
  }
 def _usage_snapshot(root:Path):
- value=usage_status(root);latest=value.get("latest")
+ value=usage_status(root);latest=value.get("preferredDetails")
+ basis=("unavailable" if latest is None else
+  "previous-completed-runtime-turn" if latest["sourceTrust"]=="runtime-observed" else
+  "previous-completed-caller-selected-runtime-metadata" if latest["sourceTrust"]=="asserted-runtime" else
+  "latest-operator-report")
  return {
   "state":value["state"],
   "records":value["records"],
-  "totalTokens":value["totalTokens"],
-  "subagentTokens":value["subagentTokens"],
-  "rootTokens":value["rootTokens"],
-  "latest":None if latest is None else {key:latest[key] for key in ("state","totalTokens","rootTokens","subagentTokens","subagentCount","sourceKind","sourceTrust","accuracy")},
+  "totalTokens":None if latest is None else latest["totalTokens"],
+  "subagentTokens":None if latest is None else latest["subagentTokens"],
+  "rootTokens":None if latest is None else latest["rootTokens"],
+  "ledgerTotalTokens":value["totalTokens"],
+  "displayBasis":basis,
+  "latest":None if latest is None else {key:latest[key] for key in ("state","completedAt","totalTokens","rootTokens","subagentTokens","subagentCount","sourceKind","sourceTrust","measurement","attestation","accuracy","breakdown")},
+  "trustCounts":value["trustCounts"],
   "accuracy":value["accuracy"],
  }
 def _optimization_snapshot(root:Path):
@@ -110,7 +127,7 @@ def _optimization_snapshot(root:Path):
   usage_envelope={
    "budgetState":envelope["budgetState"],
    "plan":{key:plan[key] for key in ("contextTokenCeiling","totalTokenCeiling","subagentTokenCeiling","maxSubagents")},
-   "actual":None if actual is None else {key:actual[key] for key in ("totalTokens","rootTokens","subagentTokens","subagentCount")},
+   "actual":None if actual is None else {key:actual[key] for key in ("totalTokens","rootTokens","subagentTokens","subagentCount","sourceKind","sourceTrust","accuracy")},
   }
  reflection_summary=None
  if reflection is not None:
@@ -137,12 +154,37 @@ def _optimization_snapshot(root:Path):
   "adapterCallCount":0,
   "modelCallCount":0,
  }
+def _efficiency_cycle_snapshot(root:Path):
+ try:value=efficiency_cycles.status(root)
+ except ProjectError:
+  return {"state":"invalid","windowSize":20,"cycleCount":0,"pendingReceiptCount":0,"remainingUntilNextCycle":None,"latest":None,"readOnly":True}
+ latest=value["latest"]
+ return {
+  "state":value["state"],
+  "windowSize":value["windowSize"],
+  "cycleCount":value["cycleCount"],
+  "pendingReceiptCount":value["pendingReceiptCount"],
+  "remainingUntilNextCycle":value["remainingUntilNextCycle"],
+  "latest":None if latest is None else {
+   "id":latest["id"],
+   "receiptCount":latest["receiptCount"],
+   "firstCompletedAt":latest["firstCompletedAt"],
+   "lastCompletedAt":latest["lastCompletedAt"],
+   "metrics":latest["metrics"],
+   "signals":latest["signals"],
+   "recommendation":latest["recommendation"],
+   "policyEffect":latest["policyEffect"],
+  },
+  "readOnly":True,
+ }
 def _advanced_snapshot(root:Path):
  try:
   host_value=host_bridge.status(root)
   host={
    "state":host_value["state"],
    "completionCount":host_value["completionCount"],
+   "pendingEnvelopeCount":host_value["pendingEnvelopeCount"],
+   "expiredPendingEnvelopeCount":host_value["expiredPendingEnvelopeCount"],
    "lateCount":host_value["lateCount"],
    "budgetExceededCount":host_value["budgetExceededCount"],
    "usageTrustCounts":{"hostAsserted":host_value["usageTrustCounts"]["host-asserted"],"unavailable":host_value["usageTrustCounts"]["unavailable"]},
@@ -150,7 +192,7 @@ def _advanced_snapshot(root:Path):
    "command":"hellodev host status",
   }
  except ProjectError:
-  host={"state":"invalid","completionCount":0,"lateCount":0,"budgetExceededCount":0,"usageTrustCounts":{"hostAsserted":0,"unavailable":0},"latest":None,"command":"hellodev host status"}
+  host={"state":"invalid","completionCount":0,"pendingEnvelopeCount":0,"expiredPendingEnvelopeCount":0,"lateCount":0,"budgetExceededCount":0,"usageTrustCounts":{"hostAsserted":0,"unavailable":0},"latest":None,"command":"hellodev host status"}
  try:
   policy_value=policy_evolution.status(root)
   active=policy_value["activeCanary"]
@@ -159,12 +201,38 @@ def _advanced_snapshot(root:Path):
    "eventCount":policy_value["eventCount"],
    "activeProposal":policy_value["activeProposalId"] is not None,
    "canaryActive":active is not None,
-   "canaryExpired":bool(active and active["expired"]),
+   "canaryExpired":bool(active and active.get("expired",False)),
    "integrityState":policy_value["integrity"]["state"],
    "command":"hellodev policy status",
   }
  except ProjectError:
   policy={"state":"invalid","eventCount":0,"activeProposal":False,"canaryActive":False,"canaryExpired":False,"integrityState":"invalid","command":"hellodev policy status"}
+ try:
+  transaction_value=transactions.status(root)
+  transaction={"state":transaction_value["state"],"pendingCount":transaction_value["pendingCount"],"command":"hellodev transaction status"}
+ except ProjectError:
+  transaction={"state":"invalid","pendingCount":0,"command":"hellodev transaction status"}
+ try:
+  checkpoint_value=checkpoints.status(root)
+  checkpoint={"state":checkpoint_value["state"],"matched":checkpoint_value["matched"],"portableCopyRequired":checkpoint_value["portableCopyRequired"],"command":"hellodev policy checkpoint status"}
+ except ProjectError:
+  checkpoint={"state":"invalid","matched":None,"portableCopyRequired":True,"command":"hellodev policy checkpoint status"}
+ experiment=None
+ if policy.get("canaryActive"):
+  try:
+   policy_full=policy_evolution.status(root);active=policy_full["activeCanary"]
+   evaluation=policy_evolution.evaluate(root,active["proposalId"])
+   experiment={
+    "evaluationVersion":evaluation["evaluationVersion"],"state":evaluation["state"],"reasonCode":evaluation["reasonCode"],
+    "evidenceSufficient":evaluation["evidenceSufficient"],"commitEligible":evaluation["commitEligible"],
+    "missingBaseline":evaluation["missingBaselineCompletions"],"missingCanary":evaluation["missingCanaryCompletions"],
+    "baselineObserved":evaluation["observedBaselineCompletions"],
+    "canaryObserved":evaluation["observedCompletions"],"required":evaluation["requiredCompletions"],
+    "regressionCount":len(evaluation["regressions"]),
+    "comparison":{key:value for key,value in evaluation["comparison"].items() if key!="averageTokenDelta"},
+   }
+  except ProjectError:
+    experiment={"evaluationVersion":2,"state":"invalid","reasonCode":"canary-evaluation-invalid","evidenceSufficient":False,"commitEligible":False,"missingBaseline":0,"missingCanary":0,"baselineObserved":0,"canaryObserved":0,"required":0,"regressionCount":0,"comparison":{"tokenTrust":"unavailable"}}
  try:
   drift_value=drift.status(root);counts=drift_value["counts"];findings=drift_value["findings"]
   drift_projection={
@@ -184,6 +252,10 @@ def _advanced_snapshot(root:Path):
   "schemaVersion":1,
   "host":host,
   "policy":policy,
+  "transactions":transaction,
+  "checkpoint":checkpoint,
+  "canaryEvaluation":experiment,
+  "hostProtocol":{"selectedVersion":host_bridge.HOST_PROTOCOL_VERSION,"supportedVersions":list(host_bridge.SUPPORTED_PROTOCOL_VERSIONS)},
   "drift":drift_projection,
   "uiCapabilities":{"copyOnly":True,"applyAllowed":False,"commitAllowed":False,"revertAllowed":False,"actionApiAvailable":False},
   "readOnly":True,
@@ -200,7 +272,7 @@ def snapshot(root:Path,instance:str,started:str):
  saga_count=sum(1 for p in paths.sagas_dir.glob("saga-*.json") if p.is_file() and not p.is_symlink())
  def adapt(name):
   v=ad.get(name,{"state":"cache-missing"});return {"state":v.get("state","unknown"),"detail":v.get("reason",v.get("execution","ready"))}
- return {"schemaVersion":4,"generatedAt":utc_now(),"instanceId":instance,"startedAt":started,"readOnly":True,"lifecycle":{"phase":life["phase"]},"tasks":{"count":len(list_tasks(root))},"capabilities":{"state":caps["state"]},"adapters":{"trellis":adapt("trellis"),"nocturne":adapt("nocturne")},"briefs":brief_items,"usage":usage,"continuity":continuity,"optimization":optimize,"advanced":advanced,"audit":{"receipts":len(receipts.list_receipts(root)),"sagas":saga_count,"optimizationTraces":optimize["traceCount"],"reflectionReports":optimize["reportCount"],"evolutionProposals":optimize["proposalCount"],"hostCompletions":advanced["host"]["completionCount"],"policyEvents":advanced["policy"]["eventCount"],"driftFindings":advanced["drift"]["findingCount"],**continuity["auditSummary"]},"actions":[{"label":"刷新能力","command":"hellodev capabilities refresh"},{"label":"构建 L0 brief","command":"hellodev brief build --level L0"},{"label":"进入计划阶段","command":"hellodev lifecycle plan"},{"label":"进入工作阶段","command":"hellodev lifecycle work"}]}
+ return {"schemaVersion":7,"generatedAt":utc_now(),"instanceId":instance,"startedAt":started,"readOnly":True,"lifecycle":{"phase":life["phase"]},"tasks":{"count":len(list_tasks(root))},"capabilities":{"state":caps["state"]},"adapters":{"trellis":adapt("trellis"),"nocturne":adapt("nocturne")},"briefs":brief_items,"usage":usage,"efficiencyCycle":_efficiency_cycle_snapshot(root),"continuity":continuity,"optimization":optimize,"advanced":advanced,"audit":{"receipts":len(receipts.list_receipts(root)),"sagas":saga_count,"optimizationTraces":optimize["traceCount"],"reflectionReports":optimize["reportCount"],"evolutionProposals":optimize["proposalCount"],"hostCompletions":advanced["host"]["completionCount"],"pendingTransactions":advanced["transactions"]["pendingCount"],"pendingHostEnvelopes":advanced["host"]["pendingEnvelopeCount"],"policyEvents":advanced["policy"]["eventCount"],"driftFindings":advanced["drift"]["findingCount"],**continuity["auditSummary"]},"actions":[{"label":"刷新能力","command":"hellodev capabilities refresh"},{"label":"构建 L0 brief","command":"hellodev brief build --level L0"},{"label":"进入计划阶段","command":"hellodev lifecycle plan"},{"label":"进入工作阶段","command":"hellodev lifecycle work"}]}
 class Server(ThreadingHTTPServer):
  daemon_threads=True
  def __init__(self,address,root,token,control,instance,started):self.root=root;self.token=token;self.control=control;self.instance=instance;self.started=started;super().__init__(address,Handler)
