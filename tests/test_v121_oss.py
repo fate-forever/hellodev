@@ -29,6 +29,7 @@ class V121OssTests(unittest.TestCase):
         self.assertIn("cancel-in-progress: true", workflow)
         self.assertIn('python: ["3.10", "3.12"]', workflow)
         self.assertIn("python scripts/verify.py --scope full", workflow)
+        self.assertNotIn("cache: pip", workflow)
         self.assertIn('python -m pip install "setuptools>=68"', workflow)
         self.assertLess(
             workflow.index('python -m pip install "setuptools>=68"'),
