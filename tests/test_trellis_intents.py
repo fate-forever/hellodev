@@ -55,7 +55,10 @@ class TrellisIntentTests(unittest.TestCase):
             root = Path(directory)
             self._root_with_native_task_script(root)
             run_cli("--root", str(root), "init")
-            with patch("hellodev.adapters.trellis.executable", return_value=sys.executable):
+            with patch(
+                "hellodev.adapters.trellis.executable",
+                return_value=str(Path(sys.executable).resolve()),
+            ):
                 _, plan = run_cli(
                     "--root",
                     str(root),

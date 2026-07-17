@@ -256,7 +256,10 @@ class HelloDevCliTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
             run_cli("--root", str(root), "init")
-            with patch("hellodev.adapters.trellis.executable", return_value=sys.executable):
+            with patch(
+                "hellodev.adapters.trellis.executable",
+                return_value=str(Path(sys.executable).resolve()),
+            ):
                 _, plan = run_cli("--root", str(root), "trellis", "prepare", "--", "--version")
                 self.assertTrue(plan["approval"].startswith("APPROVE-EXTERNAL:"))
                 _, result = run_cli(
