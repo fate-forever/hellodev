@@ -112,6 +112,18 @@ def next_decision(root: Path) -> dict[str, Any]:
             "executionPerformed": False,
         }
     lifecycle_state = lifecycle.status(root)
+    if lifecycle_state["phase"] == "finished":
+        trellis_tasks = contracts.list_trellis_tasks(root)
+        if len(trellis_tasks) == 1:
+            task = trellis_tasks[0]
+            return {
+                "schemaVersion": 1,
+                "command": f"hellodev work activate --trellis-task {task}",
+                "reason": f"Trellis task {task} is the only active native task; activate it as the next HelloDev cycle.",
+                "reasonCode": "single-trellis-task-ready-for-new-cycle",
+                "suggestedLevel": "L1",
+                "executionPerformed": False,
+            }
     policy = policy_evolution.status(root)
     active_canary = policy["activeCanary"]
     if active_canary is not None and (

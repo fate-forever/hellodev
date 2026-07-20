@@ -81,7 +81,7 @@ class F2DashboardTests(unittest.TestCase):
             ):
                 value = dashboard.snapshot(root, "instance", "2026-07-16T00:00:00Z")
 
-            self.assertEqual(value["schemaVersion"], 7)
+            self.assertEqual(value["schemaVersion"], 8)
             self.assertTrue(value["readOnly"])
             continuity = value["continuity"]
             self.assertTrue(continuity["readOnly"])
@@ -282,7 +282,7 @@ class F2DashboardTests(unittest.TestCase):
             value = dashboard.snapshot(root, "instance", "2026-07-17T00:01:00Z")
 
             projected = value["efficiencyCycle"]
-            self.assertEqual(value["schemaVersion"], 7)
+            self.assertEqual(value["schemaVersion"], 8)
             self.assertTrue(projected["readOnly"])
             self.assertEqual(projected["windowSize"], 20)
             self.assertEqual(projected["cycleCount"], 1)
@@ -398,7 +398,7 @@ class F2DashboardTests(unittest.TestCase):
                 value = dashboard.snapshot(root, "instance", "2026-07-16T00:00:00Z")
 
             advanced = value["advanced"]
-            self.assertEqual(value["schemaVersion"], 7)
+            self.assertEqual(value["schemaVersion"], 8)
             self.assertEqual(advanced["host"]["completionCount"], 4)
             self.assertEqual(
                 set(advanced["host"]["latest"]),
@@ -505,7 +505,7 @@ class F2DashboardTests(unittest.TestCase):
         self.assertNotIn("<input", markup)
         self.assertIn("Canary Evaluation v2", markup)
         self.assertIn("Portable checkpoint", markup)
-        self.assertIn("HELLODEV 0.12.1", markup)
+        self.assertIn("HELLODEV 0.14.1", markup)
 
 
 if __name__ == "__main__":

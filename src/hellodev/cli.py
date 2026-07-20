@@ -13,12 +13,14 @@ from pathlib import Path
 from typing import Any, Callable
 
 from . import __version__
+from .application import ProjectClient
 from .adapters import nocturne, trellis
 from . import (
     approval,
     audit,
     briefs,
     capabilities,
+    components,
     checkpoints,
     context_policy,
     contracts,
@@ -29,6 +31,7 @@ from . import (
     host_bridge,
     host_sdk,
     intelligence,
+    integrations,
     knowledge_flows,
     lifecycle,
     optimization,
@@ -42,7 +45,10 @@ from . import (
     drift,
     efficiency_cycles,
     usage_collector,
+    mcp_gateway,
+    onboarding,
 )
+from .command_rendering import command_line as render_command_line, rewrite_commands
 from .project import (
     ProjectError,
     configure_nocturne,
@@ -58,19 +64,29 @@ from .project import (
 from .snapshot import default_snapshot_path, verify as verify_snapshot
 
 
-def _parser() -> argparse.ArgumentParser:
+def _parser(show_all: bool = False) -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         prog="hellodev",
         description="Standalone HelloDev development workflow CLI.",
         epilog=(
             "Progressive disclosure: daily = open -> next -> do; "
-            "recovery = resume; advanced = host, policy, drift, optimize, usage, delegate, audit, and native commands."
+            "recovery = resume; setup = setup -> onboard -> integrate; advanced = host, policy, drift, optimize, usage, delegate, audit, "
+            "MCP transport, and native commands. Use --help-all to disclose every command family."
         ),
     )
     parser.add_argument("--root", default=".", help="project root (default: current directory)")
     parser.add_argument("--json", action="store_true", help="emit JSON output")
     parser.add_argument("--version", action="version", version=f"hellodev {__version__}")
-    commands = parser.add_subparsers(dest="command", required=True)
+    parser.add_argument("--help-all", action="store_true", help="show daily, setup, recovery, and advanced commands")
+    commands = parser.add_subparsers(
+        dest="command",
+        required=True,
+        metavar=(
+            "COMMAND"
+            if show_all
+            else "{open,next,do,status,resume,setup,onboard,components,integrate,doctor}"
+        ),
+    )
     commands.add_parser("init", help="create project-local .hellodev state")
     open_parser = commands.add_parser("open", help="initialize or resume the unified daily workflow")
     open_parser.add_argument("--verbose", action="store_true", help="include full start and capability details")
@@ -82,6 +98,32 @@ def _parser() -> argparse.ArgumentParser:
     start_parser.add_argument("--verbose", action="store_true", help="include the full capability cache")
     status_parser = commands.add_parser("status", help="show compact local status")
     status_parser.add_argument("--verbose", action="store_true", help="include the full capability cache")
+
+    setup_parser = commands.add_parser("setup", help="verify the unified bundle and initialize its private data root")
+    setup_parser.add_argument("--home", default=None, help="HelloDev home selected by the same HELLODEV_HOME value")
+    onboard_parser = commands.add_parser("onboard", help="connect this project to the verified unified distribution")
+    onboard_parser.add_argument("--host", choices=("cursor", "codex", "none"), default="cursor")
+    onboard_parser.add_argument("--without-memory", action="store_true", help="leave bundled Nocturne disabled")
+    onboard_parser.add_argument("--with-trellis", action="store_true", help="prepare a confirmed Trellis project initialization when absent")
+    component_parser = commands.add_parser("components", help="inspect or verify bundled Trellis and Nocturne")
+    component_commands = component_parser.add_subparsers(dest="component_command", required=True)
+    component_commands.add_parser("status", help="show bundle and component availability")
+    component_verify = component_commands.add_parser("verify", help="verify manifest-bound component bytes")
+    component_verify.add_argument("--component", choices=("trellis", "nocturne"), default=None)
+
+    integrate_parser = commands.add_parser("integrate", help="render or validate project-scoped Agent host setup")
+    integrate_commands = integrate_parser.add_subparsers(dest="integrate_command", required=True)
+    for name, help_text in (
+        ("show", "render a Codex or Cursor MCP snippet without writing it"),
+        ("check", "validate the bounded local MCP integration without reading host config"),
+    ):
+        command = integrate_commands.add_parser(name, help=help_text)
+        command.add_argument("--host", choices=("codex", "cursor"), required=True)
+
+    mcp_parser = commands.add_parser("mcp", help="optional official-SDK root-bound MCP transport")
+    mcp_commands = mcp_parser.add_subparsers(dest="mcp_command", required=True)
+    mcp_serve = mcp_commands.add_parser("serve", help="serve the bounded daily ProjectClient API over stdio")
+    mcp_serve.add_argument("--root", dest="mcp_root", default=None, help="project root bound for the server lifetime")
 
     lifecycle_parser = commands.add_parser("lifecycle", help="advance or inspect the unified workflow lifecycle")
     lifecycle_commands = lifecycle_parser.add_subparsers(dest="lifecycle_command", required=True)
@@ -314,6 +356,8 @@ def _parser() -> argparse.ArgumentParser:
     link_group = work_link.add_mutually_exclusive_group(required=True)
     link_group.add_argument("--local-task", default=None)
     link_group.add_argument("--trellis-task", default=None)
+    work_activate = work_commands.add_parser("activate", help="select an existing Trellis task and begin one new lifecycle cycle")
+    work_activate.add_argument("--trellis-task", required=True)
     work_select = work_commands.add_parser("select", help="select an existing WorkItem as current")
     work_select.add_argument("work_item_id")
     work_commands.add_parser("clear", help="clear the current WorkItem pointer")
@@ -457,6 +501,11 @@ def _parser() -> argparse.ArgumentParser:
     snapshot_commands = snapshot_parser.add_subparsers(dest="snapshot_command", required=True)
     snapshot_verify = snapshot_commands.add_parser("verify", help="hash a source tree")
     snapshot_verify.add_argument("--path", default=None, help="source tree to hash (default: this package)")
+    if not show_all:
+        visible = {"open", "next", "do", "status", "resume", "setup", "onboard", "components", "integrate", "doctor"}
+        commands._choices_actions[:] = [
+            action for action in commands._choices_actions if action.dest in visible
+        ]
     return parser
 
 
@@ -489,6 +538,7 @@ def _status(root: Path) -> dict[str, Any]:
         "capabilities": capability_cache,
         "trellis": trellis_state,
         "nocturne": nocturne_state,
+        "distribution": components.availability(),
     }
 
 
@@ -510,8 +560,14 @@ def _doctor(root: Path, include_fix_hints: bool = False) -> dict[str, Any]:
         transaction_check = {"name": "transaction-recovery", "state": "invalid", "detail": str(error)}
     trellis_compatible = state["trellis"]["state"] != "unsafe"
     nocturne_compatible = state["nocturne"]["state"] not in {"unsafe", "invalid"}
+    distribution_state = state["distribution"]
     checks = [
         {"name": "python", "state": "ok", "detail": platform.python_version()},
+        {
+            "name": "unified-distribution",
+            "state": "ok" if distribution_state["state"] == "ready" else distribution_state["state"],
+            "detail": distribution_state.get("reason", distribution_state["state"]),
+        },
         {
             "name": "project-state",
             "state": "ok" if state["initialized"] else "action-required",
@@ -569,8 +625,11 @@ def _human(value: Any, heading: str = "HelloDev") -> str:
 
 
 def _emit(value: Any, json_output: bool, heading: str = "HelloDev") -> None:
+    value = rewrite_commands(value)
     if json_output:
-        print(json.dumps(value, ensure_ascii=False, sort_keys=True))
+        # ASCII JSON keeps exact Unicode paths portable across Windows cmd.exe,
+        # Windows PowerShell, Cursor, and redirected agent subprocess pipes.
+        print(json.dumps(value, ensure_ascii=True, sort_keys=True))
     else:
         print(_human(value, heading))
 
@@ -604,7 +663,7 @@ def _host_completion_from_stdin() -> tuple[Any, Any]:
 
 
 def _command_line(root: Path, *arguments: str) -> str:
-    return subprocess.list2cmdline(["hellodev", "--root", str(root), *arguments])
+    return render_command_line(root, *arguments)
 
 
 def _selected_level(intent: str | None, explicit_level: str | None, legacy_default: str) -> str:
@@ -638,7 +697,7 @@ def _trellis_binding(root: Path) -> dict[str, Any]:
     return {
         "capability_fingerprint": capabilities.fingerprint(root),
         "executable_identity": {
-            "trellis": _file_identity(trellis.executable()),
+            "trellis": trellis.binding_identity(),
             "python": _file_identity(sys.executable),
             "taskScript": _file_identity(root / ".trellis" / "scripts" / "task.py"),
         },
@@ -655,6 +714,9 @@ def _nocturne_binding(root: Path) -> dict[str, Any]:
         "executable_identity": {
             "command": _file_identity(configuration["command"]),
             "mode": configuration["mode"],
+            "source": configuration.get("source", "external"),
+            "componentFiles": configuration.get("executionIdentity", []),
+            "manifestSha256": configuration.get("manifestSha256"),
         },
         "intent_registry": {"search_memory": {"risk": "read", "scope": "narrow"}},
     }
@@ -1363,26 +1425,65 @@ def _profile_resume_arguments(args: argparse.Namespace) -> list[str]:
     return values
 
 
-def main(argv: list[str] | None = None) -> int:
-    args = _parser().parse_args(argv)
+def _project_client_do_arguments(args: argparse.Namespace) -> dict[str, Any]:
+    fields: dict[str, tuple[str, ...]] = {
+        "plan": ("note",),
+        "work": ("note",),
+        "check": ("note",),
+        "finish": ("note",),
+        "task": ("operation", "title", "task", "approve", "timeout"),
+        "validate": ("task", "approve", "timeout"),
+        "recall": ("query", "domain", "limit", "namespace_scope", "also_memory", "approve", "timeout"),
+        "remember": ("lesson", "scope", "receipt", "saga", "proposal", "approve", "timeout"),
+    }
+    return {name: getattr(args, name) for name in fields[args.do_intent]}
+
+
+def _main(argv: list[str] | None = None) -> int:
+    selected_argv = list(sys.argv[1:] if argv is None else argv)
+    if "--help-all" in selected_argv:
+        print(_parser(show_all=True).format_help())
+        return 0
+    args = _parser().parse_args(selected_argv)
     exit_code = 0
     try:
-        root = resolve_root(args.root)
+        root = resolve_root(args.mcp_root or args.root) if args.command == "mcp" else resolve_root(args.root)
+        project_client = ProjectClient(root)
         handlers: dict[str, Callable[[], tuple[Any, str]]] = {
             "init": lambda: (init_project(root), "HelloDev initialized"),
-            "open": lambda: (_open(root, args.verbose), "HelloDev opened"),
-            "next": lambda: (routing.next_decision(root), "HelloDev next"),
+            "open": lambda: (project_client.open(verbose=args.verbose), "HelloDev opened"),
+            "next": lambda: (project_client.next(), "HelloDev next"),
             "start": lambda: (_start_output(root, args.verbose), "HelloDev started"),
-            "status": lambda: ((_status(root) if args.verbose else _compact_status(_status(root))), "HelloDev status"),
+            "status": lambda: (project_client.status(verbose=args.verbose), "HelloDev status"),
             "doctor": lambda: (_doctor(root, args.fix_hints), "HelloDev doctor"),
         }
-        if args.command == "resume":
-            projection = resume.build(root)
-            if args.context:
-                projection["context"] = resume.context_pack(root, args.token_budget)
+        if args.command == "mcp":
+            mcp_gateway.serve(root)
+            return 0
+        if args.command == "setup":
+            value, heading = components.setup(args.home), "HelloDev unified distribution configured"
+        elif args.command == "onboard":
+            value, heading = onboarding.onboard(
+                root,
+                host=args.host,
+                enable_memory=not args.without_memory,
+                prepare_trellis=args.with_trellis,
+            ), "HelloDev project onboarded"
+        elif args.command == "components":
+            if args.component_command == "status":
+                value, heading = components.availability(), "HelloDev components"
+            elif args.component is None:
+                value, heading = components.verify_all(), "HelloDev components verified"
+            else:
+                value, heading = components.verify_component(args.component), "HelloDev component verified"
+        elif args.command == "integrate":
+            operation = integrations.show if args.integrate_command == "show" else integrations.check
+            value, heading = operation(root, args.host), "HelloDev integration"
+        elif args.command == "resume":
+            projection = project_client.resume(include_context=args.context, token_budget=args.token_budget)
             value, heading = projection, "HelloDev resume"
         elif args.command == "do":
-            value, heading = _run_do(root, args), "HelloDev intent"
+            value, heading = project_client.do(args.do_intent, _project_client_do_arguments(args)), "HelloDev intent"
         elif args.command == "recall":
             value, heading = _run_recall(root, args, ["recall"]), "HelloDev recall"
         elif args.command == "remember":
@@ -1465,19 +1566,15 @@ def main(argv: list[str] | None = None) -> int:
             if args.context_command == "suggest":
                 value, heading = context_policy.suggest(args.intent, args.level), "HelloDev context suggestion"
             else:
-                if args.resume:
-                    if args.level is not None or args.intent is not None or args.task is not None or args.allow_l2:
-                        raise ProjectError("context pack --resume cannot be combined with level, intent, task, or allow-l2")
-                    value, heading = resume.context_pack(root, args.token_budget), "HelloDev resume context pack"
-                else:
-                    selected_level = _selected_level(args.intent, args.level, "L1")
-                    value, heading = {
-                        **briefs.context_pack(root, selected_level, args.task, args.allow_l2, args.token_budget),
-                        "selection": context_policy.suggest(args.intent, args.level) if args.intent else {
-                            "level": selected_level,
-                            "selectionSource": "legacy-default" if args.level is None else "explicit",
-                        },
-                    }, "HelloDev context pack"
+                value = project_client.context(
+                    intent=args.intent,
+                    level=args.level,
+                    task=args.task,
+                    allow_l2=args.allow_l2,
+                    token_budget=args.token_budget,
+                    resume_context=args.resume,
+                )
+                heading = "HelloDev resume context pack" if args.resume else "HelloDev context pack"
         elif args.command == "smart":
             if args.smart_command == "classify":
                 value, heading = intelligence.classify(args.lesson, args.scope), "HelloDev smart routing"
@@ -1715,6 +1812,8 @@ def main(argv: list[str] | None = None) -> int:
                 backend = "local" if args.local_task is not None else "trellis"
                 native_ref = args.local_task if args.local_task is not None else args.trellis_task
                 value, heading = contracts.create_work_item(root, backend, native_ref), "HelloDev work linked"
+            elif args.work_command == "activate":
+                value, heading = contracts.activate_trellis_task(root, args.trellis_task), "HelloDev Trellis work activated"
             elif args.work_command == "select":
                 value, heading = contracts.set_current_work_item(root, args.work_item_id), "HelloDev work selected"
             elif args.work_command == "clear":
@@ -1859,3 +1958,8 @@ def main(argv: list[str] | None = None) -> int:
     except (ProjectError, ValueError) as error:
         print(f"hellodev: {error}", file=sys.stderr)
         return 2
+
+
+def main(argv: list[str] | None = None) -> int:
+    with components.verification_session():
+        return _main(argv)

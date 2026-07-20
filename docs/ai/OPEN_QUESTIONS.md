@@ -1,9 +1,30 @@
 # HelloDev Core open questions
 
-Last refreshed: 2026-07-17
-Scope: HelloDev 0.12.1 reliability hardening, typed SDK packaging, CI/Demo OSS surfaces, and Dashboard schema v7 on the released 0.12.0 baseline
+Last refreshed: 2026-07-20
+Scope: released HelloDev 0.14.1 unified distribution on the completed 0.13.0 Agent-native baseline
 
 Release status, artifact hashes, and immutable evidence belong in the root development ledger and the versioned release report. The checks below are the reusable gate for any source change; this orientation file does not duplicate mutable artifact hashes.
+
+## 0.14.1 implemented decisions and release result
+
+1. The user-facing product is packaged as one HelloDev platform bundle, but Trellis and Nocturne remain separately launched components with independent `.trellis/` and Nocturne data ownership. No database or source-of-truth merge is permitted. _Implemented decision._
+2. Bundled components are selected only from a strict relative-path manifest and checked before launch. The manifest includes upstream version/revision/source/license plus size/SHA-256 for controlled files. Full local replacement of both manifest and payload remains outside this integrity claim. _Implemented decision; not a signature or provenance witness._
+3. Existing 0.13 project configuration remains readable. Bundled Nocturne becomes active only through explicit onboarding, so an upgrade cannot silently introduce memory reads/writes. _Implemented compatibility decision._
+4. Nocturne payload, writable config, and SQLite state are separate. Existing user databases are neither scanned nor migrated automatically. _Implemented privacy decision._
+5. The Core wheel remains portable and MIT-licensed; self-contained runtimes and separately licensed upstream payloads belong to platform archives. Windows x86_64 passed the exact offline artifact gate. Linux/macOS support remains **Relevant but non-blocking** until exact archives pass the same smoke. _Released packaging decision._
+6. Third-party notice/source-offer mechanics are release gates, but manifest matching is not final legal review or code signing. Those conclusions remain **Relevant but non-blocking** and require independent review.
+7. The exact Windows archive proved offline launch of bundled Trellis and Nocturne with a clean/poisoned environment and disposable data. Source/unit completion alone remains insufficient for any future platform archive. _Release gate completed for Windows x86_64._
+
+## Fixed 0.13 Agent-native decisions
+
+1. `ProjectClient` is the typed application facade for CLI and MCP daily operations. It binds one root and retains no cross-call capability, identity, lease, profile, or approval cache.
+2. The optional stdio gateway uses verified official `mcp==1.28.1`; base Core remains dependency-free and does not import MCP. The exact pin protects the closed-schema enforcement until a later SDK version is separately tested.
+3. MCP exposes exactly `open`, `next`, `resume`, `status`, `context`, and `do`. It exposes no root argument per tool, generic argv, native adapter, HostEnvelope, policy, usage, audit, or Dashboard action.
+4. MCP approval annotations are advisory, not human-attestation. The exact existing token must still bind and authorize the same operation; memory and old conversation text never authorize.
+5. `hellodev_context` uses the non-persistent preview path. MCP `open` and `do` are serialized in-process; state stores retain their existing cross-process protections.
+6. `integrate show/check` renders or validates project-scoped Codex/Cursor snippets without reading or mutating host configuration.
+7. Default help discloses the daily/setup path; `--help-all` exposes advanced governance and adapters without removing compatibility commands.
+8. Ordinary CI remains non-publishing. A separate release-only workflow is OIDC-ready, but GitHub Release creation, protected-environment configuration, and actual PyPI upload remain separately authorized and unverified until performed.
 
 ## Fixed 0.12.1 polish decisions
 
@@ -13,9 +34,9 @@ Release status, artifact hashes, and immutable evidence belong in the root devel
 4. The SDK ships `py.typed`, public typed errors, and pending/reconcile/abandon methods. Full HostEnvelope context remains host-owned and is never reconstructed from sanitized metadata.
 5. A valid pending HostEnvelope routes to exact `host pending <id>`, which declares external-host continuation and a separate abandon command; expired pending state still routes directly to abandon.
 6. Canary v2 adds `commitEligible` and missing baseline/canary counts without changing evaluation outcomes.
-7. CI is bounded and non-publishing: Ubuntu/Windows Python 3.10/3.12 fast, Ubuntu 3.12 full, seven-day wheel candidate, no secrets or release upload.
+7. CI is bounded and non-publishing: Ubuntu/Windows Python 3.10/3.12 fast, Ubuntu 3.12 full, seven-day wheel candidate, no secrets or release upload. Dependency-free jobs do not enable `setup-python` pip caching; otherwise its post-job cache save fails when no cache directory was created.
 8. Minimal Demo and SDK example require neither Trellis nor Nocturne and do not simulate crashes through product backdoors. Fault injection remains test evidence.
-9. Local 0.12.1 source/release completion does not imply PyPI or GitHub publication; either external action requires explicit authorization and independent verification.
+9. The standalone GitHub source mirror is published and CI-verified. Local source/release completion still does not imply PyPI availability; public-index upload requires explicit authorization and independent verification.
 
 ## Fixed 0.12 reliability decisions
 
@@ -91,6 +112,9 @@ Release status, artifact hashes, and immutable evidence belong in the root devel
 | 0.10.0 optimization | 82/82 fast and 114/114 full; deterministic reflection/proposal/privacy matrix and disposable adapter path. |
 | 0.10.1 disclosure | 87/87 fast and 119/119 full; daily/recovery/advanced disclosure matrix, authority-sensitive source comparison, isolated wheel and schema-v3 Control Center smoke. |
 | 0.11.0 evolution | 113 fast and 145 full tests, zero failures and one platform-conditional skip in each scope; HostEnvelope/policy/drift/privacy matrix, isolated wheel, and schema-v4 Control Center smoke. |
+| 0.12.0 reliability | 181 full tests passed with one conditional symlink skip; WAL recovery, typed Host SDK, Canary v2, checkpoint, audit privacy and schema-v7 Dashboard smoke. |
+| 0.12.1 OSS polish | 191 full tests passed with one conditional symlink skip; exact wheel, typed package data, local Demo, Host recovery and checkpoint exit-code smoke. |
+| 0.13.0 Agent-native | 167 fast and 199 full tests passed with two expected skips; exact six-tool official-SDK stdio smoke, base/MCP wheel checks and release snapshot. |
 
 These are inherited release facts recorded in the root development ledger and preserved release directories. Every later source change still requires the current release gate.
 
@@ -98,7 +122,7 @@ These are inherited release facts recorded in the root development ledger and pr
 
 | Question | Required resolution |
 |---|---|
-| Does the full regression pass after the 0.12 additions? | Run the focused v0.12 suite and one final full verification; record exact counts. |
+| Does the full regression pass after the 0.14 additions? | Run focused v0.14 distribution/security tests and one final full verification; record exact counts only in the completed release report. |
 | Does crash recovery preserve authorization semantics? | Inject failure before WAL and after each phase; prove reusable-before-WAL or no-new-authorization recovery after WAL. |
 | Is the Host SDK a real compatibility surface? | Import public types, negotiate versions, load schemas from source/wheel, and reject incompatible or manually malformed envelopes. |
 | Does Canary v2 reject weak evidence? | Require equal bounded samples, test every comparison dimension, and preserve host-asserted/unavailable token labels. |
@@ -109,7 +133,7 @@ These are inherited release facts recorded in the root development ledger and pr
 | Is runtime usage exact but honestly unattested? | Assert automatic-vs-explicit `sourceTrust`, exact measurement/attestation, cumulative breakdown, subagent total, and absence of provider-verified wording. |
 | Does collection fail closed and preserve privacy? | Exercise missing child, malformed/regressing/conflicting input, unsafe path, idempotency, forbidden-value scan, and no-partial persistence. |
 | Is the UI still non-executable? | Run authenticated/unauthenticated schema-v7 smoke and assert exact `uiCapabilities`, filtered recovery/experiment/usage projections, and status-only commands. |
-| Is the artifact reproducible and independent? | Snapshot verify, no-cache wheel, hashes, fresh venv, Demo/SDK smoke, separate `outputs/hellodev-core-releases/0.12.1/`; preserve all prior releases unchanged. |
+| Is the artifact reproducible and independent? | Snapshot verify, no-cache wheel, hashes, fresh venv, Demo/SDK smoke, exact Windows x86_64 archive smoke, then create a separate `outputs/hellodev-core-releases/0.14.1/`; preserve all prior releases unchanged. |
 
 ## Relevant but non-blocking gaps
 
@@ -122,13 +146,13 @@ These are inherited release facts recorded in the root development ledger and pr
 | Complete-chain attacker | A writer able to replace the full event history and local head can create another internally valid chain absent the external checkpoint. |
 | Nocturne namespace/domain portability | Public stable values remain installation-specific; explicit configuration and narrow allowlists continue. |
 | Host runtime enforcement | Core emits ceilings and validates reported results; arbitrary external host scheduling/spawn enforcement remains the host's responsibility. |
-| Public package/repository publication | Local CI, wheel, docs, and release snapshot do not prove PyPI availability or GitHub synchronization; upload/push remains separately authorized. |
+| Public package publication | The GitHub source mirror is synchronized and CI-verified; PyPI availability is still unproven, and upload remains separately authorized. |
 
 ## Deliberately deferred product work
 
 | Topic | Why deferred |
 |---|---|
-| Bootstrap/global installation and host config editing | Would mutate user/system state and needs a separate installer/security contract. |
+| Unattended global installation and host config editing | Explicit bundle setup is now in 0.14 scope, but silent PATH/registry/shell/user-level Codex/Cursor mutation remains outside the security contract. |
 | Dashboard execution | Would expand approval, secret, adapter, and policy-write attack surfaces; Control Center remains copy-only. |
 | Remote transparency/witness service | Requires infrastructure, identity, retention, and availability design beyond the local CLI. |
 | Provider-attested token collection | Requires a provider-specific authenticated receipt contract; strings supplied by a caller are not evidence. |
@@ -142,9 +166,9 @@ These are inherited release facts recorded in the root development ledger and pr
 
 ## Confidence and classification
 
-- **Fact — full source read:** the 0.12.1 recovery, SDK, checkpoint, CI, package, Demo, and documentation contracts were checked in their source/config files; inherited 0.12 runtime boundaries remain mapped above.
-- **Fact — behavior verified by focused tests:** the new reliability and OSS paths are represented in `test_v121_polish.py` and `test_v121_oss.py` plus inherited suites. Artifact-specific release results still belong outside this orientation file.
-- **Relevant but non-blocking:** provider attestation, remote checkpointing, stable Nocturne namespaces, non-Codex runtime collection, host runtime enforcement, PyPI upload, and GitHub synchronization.
-- **Background/deferred:** executable UI, global bootstrap, worktree, database merge, and Codex plugin packaging.
+- **Fact — full source read:** the current 0.14 resolver, builder, onboarding, runner, adapter, package and documentation contracts were checked with the retained 0.13 ProjectClient/MCP baseline.
+- **Fact — behavior represented by focused tests:** `test_v14_distribution.py`, v13 gateway/MCP suites, and inherited reliability/security suites cover source-level behavior. Exact archive evidence remains outside this orientation file until the release gate completes.
+- **Relevant but non-blocking:** provider attestation, remote checkpointing, stable Nocturne namespaces, non-Codex runtime collection, host runtime enforcement, Linux/macOS archives, legal sign-off, code signing, and PyPI upload.
+- **Background/deferred:** executable UI, unattended global installation, worktree, database merge, and Codex plugin packaging.
 
 No open question permits weakening authorization, evidence, privacy, source-of-truth, or standalone boundaries by assumption.

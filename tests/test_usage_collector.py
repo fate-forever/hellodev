@@ -202,7 +202,7 @@ class UsageCollectorTests(unittest.TestCase):
             root, codex_home = self._multi_turn_fixture(directory, completed_turns=3)
             environment = {"CODEX_THREAD_ID": ROOT_THREAD, "CODEX_HOME": str(codex_home)}
             with mock.patch.dict("os.environ", environment, clear=False), mock.patch(
-                "hellodev.cli._roots_overlap", return_value=True
+                "hellodev.application._roots_overlap", return_value=True
             ):
                 opened = _run_cli("--root", str(root), "open")
 

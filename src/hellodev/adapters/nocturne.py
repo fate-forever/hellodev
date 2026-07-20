@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import hashlib
+import os
 import queue
 import re
 import subprocess
@@ -11,11 +12,14 @@ import threading
 from pathlib import Path
 from typing import Any
 
+from .. import __version__, components
 from ..approval import consume, prepare
-from ..project import ProjectError, nocturne_config
+from ..project import ProjectError, load_config, nocturne_config
 
 
 WRITE_TOOLS = {"create_memory", "update_memory", "delete_memory", "add_alias", "manage_triggers"}
+READ_TOOLS = {"read_memory", "search_memory"}
+KNOWN_TOOLS = READ_TOOLS | WRITE_TOOLS
 TOOL_PATTERN = re.compile(r"^[a-z][a-z0-9_]{0,63}$")
 MAX_RESPONSE_BYTES = 1024 * 1024
 
@@ -33,6 +37,7 @@ class _StdioMcp:
         self._process = subprocess.Popen(
             [configuration["command"], *configuration["args"]],
             cwd=configuration["cwd"],
+            env={**os.environ, **configuration.get("environment", {})},
             **startup_info,
         )
         self._timeout = timeout_seconds
@@ -97,7 +102,7 @@ def _configuration(root: Path) -> dict[str, Any]:
     configuration = nocturne_config(root)
     if configuration is None:
         raise ProjectError(
-            "Nocturne is not configured for this project; use 'hellodev nocturne configure' with its independent stdio command"
+            "Nocturne is not enabled for this project; run 'hellodev onboard' for the verified bundle or use 'hellodev nocturne configure' for an external stdio command"
         )
     return configuration
 
@@ -114,6 +119,8 @@ def risk_for_tool(tool: str) -> str:
 def _validate_tool(tool: str) -> None:
     if not TOOL_PATTERN.fullmatch(tool):
         raise ProjectError("Nocturne tool name must be lowercase letters, digits, and underscores")
+    if tool not in KNOWN_TOOLS:
+        raise ProjectError("Nocturne tool is not in HelloDev's audited read/write allowlist")
 
 
 def _payload(configuration: dict[str, Any], action: str, parameters: dict[str, Any]) -> dict[str, Any]:
@@ -123,6 +130,10 @@ def _payload(configuration: dict[str, Any], action: str, parameters: dict[str, A
         "command": configuration["command"],
         "args": configuration["args"],
         "cwd": configuration["cwd"],
+        "source": configuration.get("source", "external"),
+        "version": configuration.get("version"),
+        "manifestSha256": configuration.get("manifestSha256"),
+        "environment": configuration.get("environment", {}),
         "action": action,
         "parameters": parameters,
         "executionIdentity": _execution_identity(configuration),
@@ -140,6 +151,11 @@ def _file_identity(path: Path) -> dict[str, Any]:
 
 
 def _execution_identity(configuration: dict[str, Any]) -> list[dict[str, Any]]:
+    bundled = configuration.get("executionIdentity")
+    if configuration.get("source") == "bundled":
+        if not isinstance(bundled, list) or not bundled:
+            raise ProjectError("bundled Nocturne execution identity is missing")
+        return [dict(item) for item in bundled]
     identities = [_file_identity(Path(configuration["command"]))]
     base = Path(configuration["cwd"]) if configuration["cwd"] is not None else None
     for index, argument in enumerate(configuration["args"]):
@@ -152,19 +168,59 @@ def _execution_identity(configuration: dict[str, Any]) -> list[dict[str, Any]]:
 
 
 def status(root: Path) -> dict[str, Any]:
-    configuration = nocturne_config(root) if (root / ".hellodev" / "config.json").is_file() else None
-    if configuration is None:
+    project_config = load_config(root) if (root / ".hellodev" / "config.json").is_file() else None
+    adapter = project_config.get("adapters", {}).get("nocturne") if isinstance(project_config, dict) else None
+    if not isinstance(adapter, dict) or adapter.get("mode") not in {"bundled", "stdio"}:
+        try:
+            described = components.describe("nocturne") if components.bundle_root() is not None else None
+        except components.ComponentError as error:
+            described = None
+            bundle_error = str(error)
+        else:
+            bundle_error = None
         return {
-            "state": "unconfigured",
+            "state": "available-not-enabled" if described is not None else "unconfigured",
             "mode": "stdio",
-            "reason": "No independent Nocturne stdio command is configured for this project.",
+            "source": "bundled" if described is not None else None,
+            "reason": (
+                "bundled Nocturne is available; full inventory verification occurs before adapter use and explicit project onboarding is required"
+                if described is not None
+                else bundle_error or "No independent Nocturne stdio command is configured for this project."
+            ),
             "execution": "requires-one-time-approval",
         }
+    if adapter.get("mode") == "bundled":
+        try:
+            described = components.describe("nocturne")
+        except components.ComponentError as error:
+            raise ProjectError(f"bundled Nocturne is unavailable: {error}") from error
+        return {
+            "state": "configured",
+            "mode": "stdio",
+            "source": "bundled",
+            "version": described["version"],
+            "revision": described["revision"],
+            "manifestSha256": described["manifestSha256"],
+            "command": described["command"],
+            "cwd": None,
+            "dataRoot": str(components.default_home() / "data" / "nocturne"),
+            "verificationMode": described["verificationMode"],
+            "execution": "requires-one-time-approval",
+            "supportedOperations": ["tools/list", "tools/call"],
+        }
+    configuration = nocturne_config(root)
+    if configuration is None:
+        raise ProjectError("Nocturne adapter configuration is invalid")
     return {
         "state": "configured",
         "mode": "stdio",
+        "source": configuration.get("source", "external"),
+        "version": configuration.get("version"),
+        "revision": configuration.get("revision"),
+        "manifestSha256": configuration.get("manifestSha256"),
         "command": configuration["command"],
         "cwd": configuration["cwd"],
+        "dataRoot": configuration.get("dataRoot"),
         "execution": "requires-one-time-approval",
         "supportedOperations": ["tools/list", "tools/call"],
     }
@@ -202,7 +258,7 @@ def _invoke(configuration: dict[str, Any], method: str, parameters: dict[str, An
             {
                 "protocolVersion": "2025-03-26",
                 "capabilities": {},
-                "clientInfo": {"name": "hellodev", "version": "0.12.1"},
+                "clientInfo": {"name": "hellodev", "version": __version__},
             },
         )
         session.notify("notifications/initialized", {})

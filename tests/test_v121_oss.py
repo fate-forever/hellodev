@@ -21,8 +21,8 @@ class V121OssTests(unittest.TestCase):
         readme = (PACKAGE_ROOT / "README.md").read_text(encoding="utf-8")
         quick_start = (PACKAGE_ROOT / "docs" / "QUICK_START.md").read_text(encoding="utf-8")
 
-        self.assertEqual(__version__, "0.12.1")
-        self.assertIn('version = "0.12.1"', pyproject)
+        self.assertEqual(__version__, "0.14.1")
+        self.assertIn('version = "0.14.1"', pyproject)
         self.assertIn('"py.typed"', pyproject)
         self.assertTrue((PACKAGE_ROOT / "src" / "hellodev" / "py.typed").is_file())
         self.assertIn("fail-fast: false", workflow)
@@ -36,10 +36,12 @@ class V121OssTests(unittest.TestCase):
             workflow.index("python -m pip wheel"),
         )
         self.assertIn("retention-days: 7", workflow)
-        self.assertNotIn("pypi", workflow.lower())
-        self.assertIn("HelloDev Core 0.12.1", readme)
-        self.assertIn("HelloDev 0.12.1 快速上手", quick_start)
-        self.assertIn("PyPI publishing is intentionally separate", readme)
+        self.assertNotIn("id-token: write", workflow.lower())
+        self.assertIn("HelloDev Core 0.14.1", readme)
+        self.assertIn("HelloDev 0.14.1", quick_start)
+        self.assertIn("Windows x86_64", quick_start)
+        self.assertIn("components verify", quick_start)
+        self.assertIn("0.14.1 已发布到 PyPI", readme)
         for path in (
             PACKAGE_ROOT / "CONTRIBUTING.md",
             PACKAGE_ROOT / "docs" / "CASE_STUDY.md",

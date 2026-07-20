@@ -4,19 +4,26 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "hellodev-core"
-version = "0.12.1"
-description = "Standalone, adapter-oriented development workflow CLI"
+version = "0.14.1"
+description = "HelloDev Core orchestration framework for agent-native development workflows"
 readme = "README.md"
 requires-python = ">=3.10"
+# This metadata applies to the Core source/wheel only. Platform bundles retain
+# the separate licenses of Trellis, Nocturne, runtimes, and dependencies.
 license = {text = "MIT"}
 authors = [{name = "fate-forever"}]
 classifiers = [
+  "License :: OSI Approved :: MIT License",
   "Programming Language :: Python :: 3",
   "Programming Language :: Python :: 3 :: Only",
   "Programming Language :: Python :: 3.10",
   "Programming Language :: Python :: 3.11",
   "Programming Language :: Python :: 3.12",
 ]
+dependencies = []
+
+[project.optional-dependencies]
+mcp = ["mcp==1.28.1"]
 
 [project.urls]
 Homepage = "https://github.com/fate-forever/hellodev"
@@ -33,4 +40,4 @@ package-dir = {"" = "src"}
 where = ["src"]
 
 [tool.setuptools.package-data]
-hellodev = ["dashboard_assets/*.html", "dashboard_assets/*.css", "dashboard_assets/*.js", "schemas/*.json", "py.typed"]
+hellodev = ["dashboard_assets/*.html", "dashboard_assets/*.css", "dashboard_assets/*.js", "schemas/*.json", "distribution/*.json", "distribution/*.md", "py.typed"]

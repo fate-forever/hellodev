@@ -34,6 +34,9 @@ FAST_TESTS = (
     "tests.test_v12_reliability",
     "tests.test_v121_polish",
     "tests.test_v121_oss",
+    "tests.test_v13_gateway",
+    "tests.test_v13_mcp",
+    "tests.test_v14_distribution",
 )
 
 

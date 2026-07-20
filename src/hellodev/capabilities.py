@@ -8,6 +8,7 @@ import os
 from pathlib import Path
 from typing import Any
 
+from . import components
 from .adapters import nocturne, trellis
 from .project import ProjectError, ProjectPaths, load_config, utc_now, write_json
 
@@ -74,6 +75,7 @@ def fingerprint(root: Path) -> str:
         "workflow": _marker(trellis_dir / "workflow.md"),
         "context": _marker(trellis_dir / "spec" / "context" / "CONTEXT.md"),
         "scripts": _script_markers(root),
+        "componentRuntime": components.runtime_fingerprint(),
     }
     return hashlib.sha256(json.dumps(payload, sort_keys=True).encode("utf-8")).hexdigest()
 

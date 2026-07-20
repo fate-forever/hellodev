@@ -63,7 +63,8 @@ class F1CliTests(unittest.TestCase):
         text = stdout.getvalue()
         self.assertIn("daily = open -> next -> do", text)
         self.assertIn("recovery = resume", text)
-        self.assertIn("advanced = host, policy, drift, optimize, usage, delegate, audit", text)
+        self.assertIn("advanced = host, policy, drift, optimize", text)
+        self.assertIn("usage, delegate, audit", text)
 
     def test_open_next_and_context_selection_are_compact_and_idempotent(self) -> None:
         with tempfile.TemporaryDirectory() as directory:

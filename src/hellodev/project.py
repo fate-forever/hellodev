@@ -225,6 +225,7 @@ def configure_nocturne(
         cwd_value = str(working_directory_path)
     config["adapters"]["nocturne"] = {
         "mode": "stdio",
+        "source": "external",
         "command": str(executable.resolve()),
         "args": list(arguments),
         "cwd": cwd_value,
@@ -233,10 +234,56 @@ def configure_nocturne(
     return dict(config["adapters"]["nocturne"])
 
 
+def enable_bundled_nocturne(root: str | Path) -> dict[str, Any]:
+    """Select the verified bundle symbolically without persisting install paths."""
+    from .components import resolve
+
+    paths = ProjectPaths(resolve_root(root))
+    component = resolve("nocturne")
+    config = load_config(paths.root)
+    current = config.get("adapters", {}).get("nocturne")
+    if isinstance(current, dict) and current.get("mode") == "stdio":
+        raise ProjectError("an explicit external Nocturne adapter is already configured; refusing to replace it")
+    selected = {
+        "mode": "bundled",
+        "source": "bundled",
+        "component": "nocturne",
+        "version": component.version,
+        "revision": component.revision,
+    }
+    if current == selected:
+        return dict(selected)
+    config["adapters"]["nocturne"] = selected
+    write_json(paths.config_file, config)
+    return dict(selected)
+
+
 def nocturne_config(root: str | Path) -> dict[str, Any] | None:
     config = load_config(root)
     adapter = config.get("adapters", {}).get("nocturne")
-    if not isinstance(adapter, dict) or adapter.get("mode") != "stdio":
+    if not isinstance(adapter, dict):
+        return None
+    if adapter.get("mode") == "bundled":
+        from .components import ComponentError, resolve
+
+        try:
+            component = resolve("nocturne")
+        except ComponentError as error:
+            raise ProjectError(f"bundled Nocturne is unavailable: {error}") from error
+        return {
+            "mode": "stdio",
+            "source": "bundled",
+            "version": component.version,
+            "revision": component.revision,
+            "manifestSha256": component.manifest_sha256,
+            "command": component.command,
+            "args": list(component.args),
+            "cwd": component.cwd,
+            "environment": dict(component.environment),
+            "dataRoot": component.data_root,
+            "executionIdentity": [dict(item) for item in component.execution_identity],
+        }
+    if adapter.get("mode") != "stdio":
         return None
     command = adapter.get("command")
     arguments = adapter.get("args")
@@ -247,7 +294,14 @@ def nocturne_config(root: str | Path) -> dict[str, Any] | None:
         raise ProjectError("configured Nocturne arguments are invalid")
     if cwd is not None and (not isinstance(cwd, str) or not Path(cwd).is_dir()):
         raise ProjectError("configured Nocturne working directory is invalid")
-    return {"mode": "stdio", "command": command, "args": arguments, "cwd": cwd}
+    return {
+        "mode": "stdio",
+        "source": "external",
+        "command": command,
+        "args": arguments,
+        "cwd": cwd,
+        "environment": {},
+    }
 
 
 def project_initialized(root: str | Path) -> bool:

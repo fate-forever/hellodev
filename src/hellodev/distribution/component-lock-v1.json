@@ -1,0 +1,18 @@
+{
+  "schemaVersion": 1,
+  "distributionVersion": "0.14.1",
+  "components": {
+    "trellis": {
+      "version": "0.6.7",
+      "revision": "e7c5ead4d0dfd717d11a40b6bc0c80d8af94c49a",
+      "repository": "https://github.com/mindfold-ai/trellis.git",
+      "licenseSpdx": "AGPL-3.0-only"
+    },
+    "nocturne": {
+      "version": "2.5.4-8-g15930e0",
+      "revision": "15930e09982d8349902af9032aeb6ff5d6994cdb",
+      "repository": "https://github.com/Dataojitori/nocturne_memory.git",
+      "licenseSpdx": "MIT"
+    }
+  }
+}

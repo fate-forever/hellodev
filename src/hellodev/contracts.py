@@ -194,6 +194,28 @@ def _validate_native_ref(root: Path, backend: str, native_ref: Any) -> str:
     return native_ref
 
 
+def list_trellis_tasks(root: str | Path) -> list[str]:
+    """List safe active native task directory names; archive is not active."""
+    resolved, _ = _paths(root)
+    tasks = resolved / ".trellis" / "tasks"
+    if not tasks.exists():
+        return []
+    if tasks.is_symlink() or not tasks.is_dir():
+        raise ProjectError("refusing unsafe Trellis task store")
+    values: list[str] = []
+    for item in sorted(tasks.iterdir(), key=lambda entry: entry.name.casefold()):
+        if item.name == "archive":
+            continue
+        if item.is_symlink() or not item.is_dir() or SAFE_NATIVE_REF_PATTERN.fullmatch(item.name) is None:
+            continue
+        try:
+            item.resolve().relative_to(tasks.resolve())
+        except ValueError as error:
+            raise ProjectError("Trellis task escapes the project task store") from error
+        values.append(item.name)
+    return values
+
+
 def validate_work_item_reference(root: str | Path, work_item: dict[str, Any] | str) -> dict[str, Any]:
     resolved, _ = _paths(root)
     record = get_work_item(resolved, work_item) if isinstance(work_item, str) else work_item
@@ -314,6 +336,23 @@ def create_work_item(
             store["currentWorkItemId"] = record["id"]
         _write_store(path, store)
         return record
+
+
+def activate_trellis_task(root: str | Path, native_ref: str) -> dict[str, Any]:
+    """Explicitly select one existing Trellis task and start a new local cycle.
+
+    This is intentionally not automatic: a repository may have several active
+    Trellis tasks, and selecting one changes HelloDev's current pointer.
+    """
+    with locked_state(root, "workflow-activation"):
+        resolved, _ = _paths(root)
+        if lifecycle.status(resolved)["phase"] != "finished":
+            phase = lifecycle.status(resolved)["phase"]
+            raise ProjectError(f"cannot activate a new Trellis task while lifecycle is {phase}; finish or resume it first")
+        work_item = create_work_item(resolved, "trellis", native_ref, make_current=True)
+        state = lifecycle.begin_cycle(resolved, work_item["id"])
+        work_item = refresh_work_item(resolved, work_item["id"])
+        return {"workItem": work_item, "lifecycle": state, "activated": True, "executionPerformed": True}
 
 
 def refresh_work_item(root: str | Path, work_item_id: str | None = None) -> dict[str, Any]:

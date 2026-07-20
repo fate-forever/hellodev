@@ -80,7 +80,7 @@ async function load() {
   $("health-dot").style.background = "var(--accent)";
   $("health-text").textContent = "本机 · 只读";
   $("phase").textContent = data.lifecycle.phase;
-  $("tasks").textContent = data.tasks.count;
+  $("tasks").textContent = `L${data.tasks.localCount} / T${data.tasks.trellisActiveCount}`;
   $("cache").textContent = data.capabilities.state;
   $("tokens").textContent = data.usage.totalTokens ?? "未采集";
 
@@ -96,6 +96,10 @@ async function load() {
   data.actions.forEach((item) => $("actions").append(action(item.label, item.command)));
 
   const work = continuity.currentWorkItem;
+  $("work-item").append(
+    row("任务真相", `HelloDev 本地 ${data.tasks.localCount} · Trellis 活跃 ${data.tasks.trellisActiveCount}`, `${data.tasks.linkedWorkItemCount} WorkItem`),
+    row("生命周期", `${data.lifecycle.cycleId} · 已完成 ${data.lifecycle.completedCycleCount} 周期`, data.lifecycle.phase),
+  );
   if (work) {
     $("work-item").append(
       row(work.id, `${work.backend} · ${work.nativeRef}`, work.fingerprintCurrent ? "current" : "stale"),

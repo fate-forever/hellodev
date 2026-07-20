@@ -1,10 +1,21 @@
 # HelloDev Core change surfaces
 
-Last refreshed: 2026-07-17
-Scope: HelloDev 0.12.1 reliability hardening, typed SDK packaging, CI/Demo OSS surfaces, and Dashboard schema v7 on the released 0.12.0 baseline
+Last refreshed: 2026-07-20
+Scope: released HelloDev 0.14.1 distribution on the retained 0.13.0 application/MCP baseline
 
 | Change goal | Primary source | Required tests | Documentation / real checks |
 |---|---|---|---|
+| Add/change component manifest or resolver | `components.py`, packaged manifest/notices, `capabilities.py` | v0.14 manifest/runtime negatives plus cache-staleness tests | Reject traversal, absolute paths, symlinks/reparse points, case collisions, unknown fields, missing/extra controlled files, size/hash/version/license/platform mismatch before spawn. |
+| Change Core/bundle licensing metadata | `pyproject.toml`, `LICENSE`, component lock, `THIRD_PARTY_NOTICES.md`, bundle `LICENSES`/SBOM/source materials | package-data checks, manifest/license lock checks, release-boundary scan | Core MIT applies only to Core source/wheel; Trellis AGPL-3.0-only, Nocturne MIT, runtimes and dependencies retain their own terms. Hash matching is not legal sign-off. |
+| Change bundled Trellis launch | `components.py`, `adapters/trellis.py`, application/CLI binding helpers | v0.14 component tests, Trellis intents, approval identity tests | Bundle command prefix and every file-backed entry point are execution-bound; project `.trellis/` remains the workflow authority and is never merged into `.hellodev/`. |
+| Change bundled Nocturne launch/data placement | `components.py`, `nocturne_runner.py`, `adapters/nocturne.py`, `project.py` | v0.14 stdio/config/data isolation tests plus knowledge/Saga security regression | Immutable payload and writable data root stay separate; no live DB/config/snapshot enters the bundle; memory remains advisory and all writes remain confirmed. |
+| Change setup/onboard | `components.py`, `onboarding.py`, `command_rendering.py`, `project.py`, `integrations.py`, `cli.py` | idempotency, preflight/conflict, path/reparse, legacy-project and project-boundary tests | Explicit command may write only the selected HelloDev home and project-scoped host paths; never modify user-level host config, PATH, registry, shell profile, or an existing upstream data store. |
+| Change platform bundle build/release | `bundle_builder.py`, `scripts/build_unified_bundle.py`, `scripts/verify_unified_bundle.py`, CI, release docs | reproducible fixture archive plus exact offline archive smoke | 0.14 release claim is Windows x86_64 only; verify exact archive after build, include source/notices/licenses/SBOM, and do not publish from ordinary CI. |
+| Change daily application behavior | `application.py`, `routing.py`, domain modules | `test_v13_gateway.py`, F1/security/full regression | CLI and MCP call the same root-bound client; no cross-call authorization/identity cache; exact result shapes remain compatible. |
+| Change MCP tools or SDK range | `mcp_gateway.py`, `pyproject.toml`, `ci.yml` | `test_v13_mcp.py`, base/no-extra import and isolated stdio smoke | Exactly six tools; one root; verified official `mcp==1.28.1`; no generic adapter/policy/argv surface. |
+| Change Codex/Cursor snippet rendering/checking | `integrations.py`, CLI parser | v13 integration tests | `show/check` remain read-only and do not inspect or mutate host config; preserve exact current-environment launch and approval warning. |
+| Change project host onboarding | `onboarding.py`, `command_rendering.py`, `integrations.py` | v14 conflict/preflight/idempotency and clean-PATH continuation tests | `onboard` may explicitly merge project-level Cursor config/rules or create project Codex config; it must never write user-level host configuration or overwrite a conflicting entry. |
+| Change PyPI publication | `publish.yml`, `verify_release_version.py` | static workflow tests plus exact artifact smoke | Release-only, protected `pypi` environment, publish-job-only OIDC, no rebuild or API token. |
 | Add/change `open`, `next`, or `do` grammar | `cli.py`, `routing.py` | `test_f1_cli.py`, `test_routing.py` | Three-minute guide stays `open -> next -> do`; next keeps one primary command. |
 | Change progressive efficiency disclosure | `resume.py`, `efficiency_cycles.py`, `optimization.py`, `routing.py` | routing finished/active/safety/quiet/invalid-state matrix | Safety/recovery first; only finished may show one bounded read-only cycle/optimization hint; no model/adapter/apply. |
 | Change context intent or budget | `context_policy.py`, `briefs.py` | `test_context_policy.py`, F1 CLI context cases | README context table; L2 remains opt-in. |
@@ -35,10 +46,10 @@ Scope: HelloDev 0.12.1 reliability hardening, typed SDK packaging, CI/Demo OSS s
 | Change drift projection | `drift.py`, `host_bridge.py`, `policy_evolution.py`, `capabilities.py`, `contracts.py` | clean/detected/unavailable/invalid and bounded-window tests | Read-only; distinguish structural invalidity from runtime warnings; never auto-repair. |
 | Change audit/doctor recovery hints | `audit.py`, `cli.py` | F2 audit/privacy and doctor cases | Export ids, pointers, hashes, states, and counts only; no raw task/lesson/adapter content. |
 | Change project-local state mutation/locking | `state_lock.py`, `contracts.py`, `receipts.py`, `sagas.py`, `governance.py`, `optimization.py` | `test_f2_atomicity.py`, approval atomicity, full regression | Preserve per-store cross-process serialization, symlink refusal, unique ids, idempotency, and atomic replacement. |
-| Change packaging/version | `pyproject.toml`, `py.typed`, `__init__.py`, adapter client metadata, dashboard label | v121 OSS, fast + full + isolated wheel smoke | README/RELEASE version, marker/schema wheel contents, hashes, separate release copy. |
-| Change CI/release automation | `.github/workflows/ci.yml`, `scripts/verify.py` | `test_v121_oss.py`, local fast/full parity | Preserve exact trigger/matrix/concurrency/retention semantics; no publish credentials or external mutation. |
+| Change packaging/version | `pyproject.toml`, `py.typed`, `__init__.py`, component lock/schema, adapter client metadata, dashboard label | v121/v13/v14 package tests, fast + full + isolated base/MCP wheel smoke | README/Quick Start/RELEASE version, Core-only MIT metadata, marker/schema/MCP contents, hashes, separate release copy. |
+| Change CI/release automation | `.github/workflows/ci.yml`, `.github/workflows/publish.yml`, `scripts/verify.py` | v121/v13/v14 static tests, local fast/full parity | Ordinary CI stays read-only; dependency-free jobs have no pip cache; publish authority exists only in the protected release workflow. |
 | Change Demo/examples | `scripts/demo.ps1`, `examples/*`, `docs/CASE_STUDY.md` | `test_v121_oss.py`, isolated wheel demo smoke | Keep zero-upstream and network-free; do not fake crashes or claim unverified production results. |
-| Change public OSS narrative | `README.md`, `docs/QUICK_START.md`, `docs/WHY_HELLODEV.md`, `CONTRIBUTING.md` | link/version/privacy scans | Do not advertise PyPI/GitHub release before external publication is verified. |
+| Change public OSS narrative | `README.md`, `docs/QUICK_START.md`, `docs/WHY_HELLODEV.md`, `CONTRIBUTING.md` | link/version/privacy scans | GitHub source is published; do not advertise PyPI availability or a GitHub Release before each external publication is independently verified. |
 
 ## Cross-cutting invariants
 
@@ -66,7 +77,7 @@ Scope: HelloDev 0.12.1 reliability hardening, typed SDK packaging, CI/Demo OSS s
 - Corrupt/malformed/future advisory optimization or usage state is omitted only from optional finished next/resume disclosure; explicit advanced diagnostics remain fail-closed.
 - Development source, release copies, and installed runtime caches remain separate real directories.
 - The standalone Control Center schema v7 uses a trust-dependent usage display basis, exposes only bounded usage/cycle/recovery/experiment/checkpoint fields, and keeps filtered host/policy/drift status copy-only. It exposes no raw context, approval token, policy patch, cycle hashes, complete/stage/cancel/canary/commit/revert or action API.
-- Bootstrap/global installation, Codex/Cursor config mutation, and UI execution remain outside the product.
+- Explicit 0.14 bundle setup verifies the prepackaged runtime and creates only the selected HelloDev home data/marker state. Unattended global installation, PATH/registry/shell changes, user-level Codex/Cursor config mutation, and UI execution remain outside the product.
 
 ## Review checklist for an F1/F2/optimization/disclosure/evolution change
 
@@ -98,6 +109,6 @@ Scope: HelloDev 0.12.1 reliability hardening, typed SDK packaging, CI/Demo OSS s
 
 ## Verification basis
 
-- **Fact — independently verified from source/config:** primary files and contracts were mapped from the current 0.12.1 modules, package metadata, CI workflow, CLI grammar, and examples.
+- **Fact — independently verified from source/config:** primary files and contracts were mapped from the current 0.14 component/onboarding implementation, the retained 0.13 application/MCP baseline, package metadata, CI workflow, CLI grammar, and examples.
 - **Fact — inferred from tests then checked against implementation:** fail-closed/idempotency/privacy cases map to the named test suites and source validators.
-- **Relevant but non-blocking:** provider attestation for token receipts and an external checkpoint service remain host/deployment concerns rather than Core change surfaces; runtime-observed exact completed-turn measurement does not solve attestation.
+- **Relevant but non-blocking:** provider attestation, external checkpoint service, Linux/macOS platform archives, and public PyPI publication remain host/release concerns rather than completed 0.14 evidence.

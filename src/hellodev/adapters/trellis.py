@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import hashlib
+import os
 import shutil
 import subprocess
 import sys
@@ -11,6 +12,7 @@ from pathlib import Path
 from typing import Any
 
 from ..approval import consume, prepare
+from .. import components
 from ..project import ProjectError
 
 
@@ -103,6 +105,11 @@ def _require_trellis_root(root: Path) -> Path:
 
 
 def executable() -> str | None:
+    try:
+        if components.bundle_root() is not None:
+            return components.resolve("trellis").command
+    except components.ComponentError:
+        return None
     for candidate in ("trellis.cmd", "trellis"):
         found = shutil.which(candidate)
         if found:
@@ -110,17 +117,101 @@ def executable() -> str | None:
     return None
 
 
+def _launch() -> dict[str, Any] | None:
+    try:
+        selected_bundle = components.bundle_root()
+    except components.ComponentError as error:
+        raise ProjectError(f"bundled Trellis is invalid: {error}") from error
+    if selected_bundle is not None:
+        try:
+            resolved = components.resolve("trellis", selected_bundle)
+        except components.ComponentError as error:
+            raise ProjectError(f"bundled Trellis is invalid: {error}") from error
+        return {
+            "source": "bundled",
+            "version": resolved.version,
+            "revision": resolved.revision,
+            "prefix": resolved.argv,
+            "environment": dict(resolved.environment),
+            "executionIdentity": [dict(item) for item in resolved.execution_identity],
+            "manifestSha256": resolved.manifest_sha256,
+        }
+    command = executable()
+    if command is None:
+        return None
+    return {
+        "source": "external-path",
+        "version": None,
+        "revision": None,
+        "prefix": [command],
+        "environment": {},
+        "executionIdentity": [_file_identity(Path(command))],
+        "manifestSha256": None,
+    }
+
+
+def binding_identity() -> dict[str, Any]:
+    try:
+        launch = _launch()
+    except ProjectError as error:
+        return {"state": "invalid", "reason": str(error)}
+    if launch is None:
+        return {"state": "absent"}
+    return {
+        "state": "present",
+        "source": launch["source"],
+        "version": launch["version"],
+        "revision": launch["revision"],
+        "manifestSha256": launch["manifestSha256"],
+        "environment": launch["environment"],
+        "files": launch["executionIdentity"],
+    }
+
+
 def discover(root: Path) -> dict[str, Any]:
     """Return metadata only; no command is executed during discovery."""
     project_root, error = _find_trellis_root(root)
-    command = executable()
+    try:
+        selected_bundle = components.bundle_root()
+        if selected_bundle is not None:
+            described = components.describe("trellis", selected_bundle)
+            launch = {
+                "source": "bundled",
+                "version": described["version"],
+                "revision": described["revision"],
+                "prefix": [described["command"]],
+                "verificationMode": described["verificationMode"],
+            }
+        else:
+            launch = _launch()
+    except (ProjectError, components.ComponentError) as launch_error:
+        return {
+            "state": "unsafe",
+            "mode": "confirmed-command",
+            "reason": str(launch_error),
+            "runtime": {"state": "invalid"},
+            "executable": None,
+        }
+    command = launch["prefix"][0] if launch is not None else None
+    runtime = (
+        {
+            "state": "ready",
+            "source": launch["source"],
+            "version": launch["version"],
+            "revision": launch["revision"],
+            "verificationMode": launch.get("verificationMode", "external-path"),
+        }
+        if launch is not None
+        else {"state": "unavailable"}
+    )
     if error:
-        return {"state": "unsafe", "mode": "confirmed-command", "reason": error, "executable": command}
+        return {"state": "unsafe", "mode": "confirmed-command", "reason": error, "runtime": runtime, "executable": command}
     if project_root is None:
         return {
             "state": "absent",
             "mode": "confirmed-command",
             "reason": "no .trellis directory found at the selected project root",
+            "runtime": runtime,
             "executable": command,
         }
 
@@ -143,6 +234,7 @@ def discover(root: Path) -> dict[str, Any]:
         "workflow": (trellis_dir / "workflow.md").is_file(),
         "context": (trellis_dir / "spec" / "context" / "CONTEXT.md").is_file(),
         "taskCount": task_count,
+        "runtime": runtime,
         "executable": command,
         "execution": "requires-one-time-approval",
     }
@@ -168,14 +260,18 @@ def risk_for(values: list[str]) -> str:
 
 
 def _payload(root: Path, arguments: list[str]) -> dict[str, Any]:
-    command = executable()
-    if command is None:
+    launch = _launch()
+    if launch is None:
         raise ProjectError("Trellis CLI is not available on PATH; install it before running adapter commands")
     return {
         "adapter": "trellis",
         "cwd": str(root),
-        "argv": [command, *arguments],
-        "executionIdentity": [_file_identity(Path(command))],
+        "argv": [*launch["prefix"], *arguments],
+        "executionIdentity": launch["executionIdentity"],
+        "runtimeSource": launch["source"],
+        "runtimeVersion": launch["version"],
+        "manifestSha256": launch["manifestSha256"],
+        "environment": launch["environment"],
     }
 
 
@@ -250,26 +346,30 @@ def _intent_payload(
         if not task_script.is_file() or task_script.is_symlink() or not _is_inside(task_script, project_root):
             raise ProjectError("Trellis native task script is missing or unsafe")
         executable_path = str(Path(sys.executable).resolve())
+        runner_script = Path(__file__).resolve().parents[1] / "trellis_script_runner.py"
+        if not runner_script.is_file() or runner_script.is_symlink():
+            raise ProjectError("HelloDev Trellis script runner is missing or unsafe")
+        prefix = [executable_path, "-X", "utf8", "-B", "-I", str(runner_script), str(task_script)]
         if name == "task-list":
-            argv = [executable_path, str(task_script), "list"]
+            argv = [*prefix, "list"]
         elif name == "task-current":
-            argv = [executable_path, str(task_script), "current", "--source"]
+            argv = [*prefix, "current", "--source"]
         elif name == "task-create":
-            argv = [executable_path, str(task_script), "create", _intent_title(title)]
+            argv = [*prefix, "create", _intent_title(title)]
         elif name == "task-start":
-            argv = [executable_path, str(task_script), "start", _intent_value(task, "task")]
+            argv = [*prefix, "start", _intent_value(task, "task")]
         else:
-            argv = [executable_path, str(task_script), "validate", _intent_value(task, "task")]
+            argv = [*prefix, "validate", _intent_value(task, "task")]
     else:
-        command = executable()
-        if command is None:
+        launch = _launch()
+        if launch is None:
             raise ProjectError("Trellis CLI is not available on PATH; install it before running adapter commands")
         selected_scope = _intent_scope(scope)
         if name == "channel-list":
-            argv = [command, "channel", "list", "--scope", selected_scope]
+            argv = [*launch["prefix"], "channel", "list", "--scope", selected_scope]
         else:
             argv = [
-                command,
+                *launch["prefix"],
                 "channel",
                 "thread",
                 "rename",
@@ -281,15 +381,29 @@ def _intent_payload(
                 "--scope",
                 selected_scope,
             ]
-    dependencies = [Path(argv[0])]
+    execution_identity = launch["executionIdentity"] if not name.startswith("task-") else [_file_identity(Path(argv[0]))]
     if name.startswith("task-"):
-        dependencies.append(task_script)
+        execution_identity.append(_file_identity(runner_script))
+        execution_identity.append(_file_identity(task_script))
     return {
         "adapter": "trellis",
         "intent": name,
         "cwd": str(project_root),
         "argv": argv,
-        "executionIdentity": [_file_identity(path) for path in dependencies],
+        "executionIdentity": execution_identity,
+        "environment": (
+            launch["environment"]
+            if not name.startswith("task-")
+            else {
+                "PYTHONHOME": "",
+                "PYTHONPATH": "",
+                "PYTHONUSERBASE": "",
+                "PYTHONNOUSERSITE": "1",
+                "PYTHONDONTWRITEBYTECODE": "1",
+                "PYTHONUTF8": "1",
+                "PYTHONIOENCODING": "utf-8",
+            }
+        ),
     }, str(details["risk"])
 
 
@@ -304,6 +418,7 @@ def _run_payload(payload: dict[str, Any], timeout_seconds: int) -> dict[str, Any
         completed = subprocess.run(
             payload["argv"],
             cwd=payload["cwd"],
+            env={**os.environ, **payload.get("environment", {})},
             capture_output=True,
             text=True,
             encoding="utf-8",

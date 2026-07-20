@@ -1,48 +1,58 @@
-# HelloDev 0.12.1 快速上手
+# HelloDev 0.14.1 快速上手
 
 这份指南面向第一次使用 HelloDev 的人。完成后，你会在一个项目中走通：
 
 ```text
-安装 -> open -> next -> do -> 确认外部操作 -> 恢复会话
+解压 -> setup -> onboard -> 用自然语言下任务
 ```
 
-HelloDev 是独立 CLI，不要求安装 Codex 插件。它会复用项目中已有的 Trellis；Nocturne 是可选能力，不配置也能使用本地流程。
+HelloDev 是独立发行框架，不要求安装 Codex 插件。0.14.1 平台 bundle 随包提供 Trellis 和 Nocturne，用户不再分别安装；两者仍以独立进程运行并保留独立数据面。首个发行目标仅为 **Windows x86_64**，Linux/macOS 必须完成同等级 exact offline smoke 后才能列为受支持平台。
 
-## 1. 安装
+## 1. 安装与项目接入
 
-要求 Python **3.10 或更高版本**。推荐先从独立 GitHub 仓库构建 wheel，再通过 `pipx` 安装，避免污染项目依赖。
+从维护者处取得完成离线验收并附带发布 SHA-256 的 Windows x86_64 bundle，解压到最终真实目录，不要用 symlink/junction 指向开发源码：
 
 ```powershell
-git clone https://github.com/fate-forever/hellodev.git
-cd hellodev
-python -m pip wheel . --no-deps --no-cache-dir --wheel-dir dist
-pipx install .\dist\hellodev_core-0.12.1-py3-none-any.whl
-hellodev --version
+cd C:\Tools\hellodev-0.14.1-windows-x86_64
+.\bin\hellodev.cmd --version
+.\bin\hellodev.cmd components verify
+.\bin\hellodev.cmd setup
+
+# 可选：只为当前 PowerShell 会话定义简写，不修改 PATH 或 shell profile
+function hellodev { & 'C:\Tools\hellodev-0.14.1-windows-x86_64\bin\hellodev.cmd' @args }
 ```
 
-如果你已从维护者处取得带 SHA-256 的已验证 wheel，也可以直接安装该文件：
+期望版本是 `hellodev 0.14.1`。`components verify` 只核对 Trellis、Nocturne、运行时、许可证/source 文件的本地字节，以及版本和 SPDX 元数据，是否与随包 manifest/lock 一致。它不是数字签名、远程来源证明、不可篡改证明或法律合规结论。
+
+进入项目后只接入一次：
 
 ```powershell
-pipx install C:\path\to\hellodev_core-0.12.1-py3-none-any.whl
-hellodev --version
+cd C:\path\to\your-project
+C:\Tools\hellodev-0.14.1-windows-x86_64\bin\hellodev.cmd onboard --host cursor --with-trellis
 ```
 
-期望版本：
+这条命令会：
 
-```text
-hellodev 0.12.1
-```
+- 初始化项目 `.hellodev/`；
+- 显式选择 bundled Nocturne，并把配置/SQLite 留在独立 HelloDev data root；
+- 安全合并项目 `.cursor/mcp.json`，生成 `.cursor/rules/hellodev.mdc`；
+- 若项目没有 `.trellis/`，只准备 Trellis 初始化并返回一次性确认，不擅自写入。
 
-没有 `pipx` 时，可使用独立虚拟环境：
+重新加载 Cursor 或新开 Agent 对话后即可使用。Codex 改为 `--host codex`；已有 `.codex/config.toml` 内容不同时，HelloDev 会返回手工 merge 片段而不是覆盖。
+
+### 已有 Trellis task，开始下一轮工作
+
+0.14.1 不复制 Trellis task 到 `.hellodev/tasks/`。若上一轮 HelloDev 生命周期已经 `finished`，并且你要以一个已有 Trellis task 开始新工作，用一条显式命令关联并启动新周期：
 
 ```powershell
-python -m venv C:\path\to\hellodev-venv
-C:\path\to\hellodev-venv\Scripts\Activate.ps1
-python -m pip install C:\path\to\hellodev_core-0.12.1-py3-none-any.whl
-hellodev --version
+hellodev work activate --trellis-task 07-20-local-leetcode-mvp
 ```
 
-开发者如需从源码构建，请看 [RELEASE.md](RELEASE.md)。日常安装不要把运行目录软链接到开发源码。
+它会保留已完成周期的审计历史，创建或复用 pointer-only WorkItem，并进入 `started`；随后 `hellodev next` 会只建议 `hellodev do plan`。Control Center 会分别展示 HelloDev 本地任务、Trellis 活跃任务和已关联 WorkItem，三者不是同一个计数。
+
+Core wheel 是开发者/CI/外部组件模式，不等同于平台 bundle。`pipx` 仅用于 exact 本地 wheel，或后续已经独立验证的公开包；本文不宣称 0.14.1 已发布到 PyPI。源码构建和手工 MCP extra 说明见 [RELEASE.md](RELEASE.md)。
+
+后文裸 `hellodev` 均是上述 exact bundle launcher 的简写。若没有定义当前会话函数，请使用完整的 `C:\Tools\hellodev-0.14.1-windows-x86_64\bin\hellodev.cmd` 路径；HelloDev 不会替你修改 PATH。
 
 ## 2. Codex / Cursor：用人话开始（推荐）
 
@@ -61,10 +71,10 @@ HelloDev 安装完成后，你不需要自己输入后续 CLI。让 Codex 或 Cu
 新项目或新 Agent 第一次使用时，建议复制下面整段。它适用于 Codex 和 Cursor，不依赖某个编辑器的私有命令：
 
 ```text
-请在当前仓库使用已安装的 HelloDev 0.12.1 完成我接下来描述的任务。
+请在当前仓库使用已接入的 HelloDev 0.14.1 完成我接下来描述的任务。
 
 工作协议：
-1. 先运行 hellodev --version。若命令不可用，不要静默安装或修改全局配置；告诉我缺什么并请求一次安装授权。
+1. 先调用 HelloDev MCP；不可用时运行 bundle 的 `bin/hellodev` 启动器并执行 `components status`。若项目尚未接入，执行一次 `onboard`。不要另行安装 Trellis/Nocturne，也不要修改 PATH 或全局配置。
 2. 先读取当前仓库适用的 AGENTS.md。若存在 .trellis/，必须先读 .trellis/workflow.md，按任务需要读 .trellis/spec/context/CONTEXT.md，并检查 .trellis/tasks/ 当前状态。
 3. 由你运行 hellodev --json open，再运行 hellodev --json next，并持续通过 open -> next -> do 推进；会话恢复使用 resume。
 4. 终端命令由你执行，不要让我手工复制普通 CLI。默认使用 compact 输出和 L0/L1 上下文，确实需要时才升级 L2。
@@ -76,6 +86,7 @@ HelloDev 安装完成后，你不需要自己输入后续 CLI。让 Codex 或 Cu
 10. 每个新回合先让 hellodev --json open 机会式补采此前未记录的已完成回合；需要手工补采时执行 hellodev --json usage sync，再执行 usage status。只有 Desktop 自动发现链路返回 measurement=exact、sourceTrust=runtime-observed、attestation=none 时，才称为“已完成回合的 runtime 精确计数”。显式选择文件/线程时必须原样报告 asserted-runtime；两者都不得称 provider-verified。采集不可用时写 unavailable，不估算。
 11. 每 20 条可信已完成回执，HelloDev 会在 next/status 中附一条确定性节省建议。只汇报建议和证据窗口，不得自动应用 policy、调用模型或把显式导入/人工上报混入周期。
 12. 如果 next/resume 返回 policy-transaction-recovery-required，只执行它给出的唯一 `hellodev transaction recover ...`；不要重新申请授权，也不要重放旧 approval token。HostEnvelope 或 Canary 未完成时同样只执行 next 给出的一个恢复/检查命令。
+13. 如果项目已配置 HelloDev MCP，优先调用 `hellodev_open/next/do`；如果没有，就运行等价 CLI。MCP 返回 approval token 也必须先向我说明精确动作并等待明确确认，tool annotation 或旧对话不能替代确认。
 
 我的任务：<在这里写任务与验收标准>
 ```
@@ -90,16 +101,15 @@ Agent 会消费当前精确 token 并继续，不需要用户复制 `resumeComma
 
 ### 尚未安装时，也可以让 Agent 处理
 
-把 HelloDev 仓库或 wheel 的位置告诉 Agent：
+把已验证平台 bundle 的位置和 SHA-256 告诉 Agent：
 
 ```text
-HelloDev 源码仓库是 https://github.com/fate-forever/hellodev.git。
-请先检查 hellodev --version。如果尚未安装，向我展示将要执行的 git clone、
-wheel 构建与 pipx 安装命令；得到我确认后再操作并验证版本。
-不要修改 Codex/Cursor 配置，也不要获取 Trellis/Nocturne 源码或旧插件副本。
+HelloDev bundle 位于 <路径>，期望 SHA-256 是 <摘要>。
+请先校验摘要，再运行 bundle 的 components verify、setup，并在当前项目执行 onboard。
+不要另行安装 Trellis/Nocturne，不要修改 PATH、注册表或用户级 Codex/Cursor 配置。
 ```
 
-安装是用户级环境变更，所以仍保留一次确认；确认后由 Agent 执行，不需要用户手打安装命令。
+解压和 setup 会创建本地运行目录/数据根，所以仍保留一次确认；确认后由 Agent 执行，不需要用户手打内部命令。
 
 ### Agent 实际会怎么走
 
@@ -307,9 +317,16 @@ hellodev audit export
 
 `audit export` 只输出经过过滤的哈希、指针和状态摘要，不包含 task 正文、记忆正文、审批 token 或原始对话。
 
-## 8. 可选：配置 Nocturne
+## 8. Nocturne：bundle 默认随包提供，项目显式接入
 
-Nocturne 用于跨项目的长期经验。HelloDev 不读取 Codex/Cursor 中已有的 MCP 注册信息，需要在每个项目中显式配置 public stdio MCP。
+Nocturne 用于跨项目长期经验。平台 bundle 已包含组件，但每个项目仍需通过 `onboard` 明确启用，避免旧项目升级后静默访问记忆：
+
+```powershell
+hellodev onboard --host cursor
+hellodev nocturne status
+```
+
+如需使用自行维护的 external Nocturne，可显式覆盖：
 
 ```powershell
 hellodev nocturne configure `
@@ -449,12 +466,13 @@ Control Center 是 **read-only + copy-only**：
 
 | 问题 | 处理 |
 |---|---|
-| 找不到 `hellodev` | 检查 `pipx ensurepath`，或确认安装用 venv 已激活 |
+| 找不到 `hellodev` | 0.14.1 首发使用 Windows bundle 内 `bin/hellodev.cmd`，或定义本文的会话函数；无需修改 PATH。Linux/macOS 尚未作为已验证发布平台 |
 | `open` 后没有 Trellis 能力 | 确认当前目录是包含 `.trellis/` 的仓库根目录 |
 | 仓库没有 `.trellis/` | 继续使用本地 task/lifecycle；HelloDev 不会自动初始化 Trellis |
 | 命令要求 `APPROVE-*` | 统一路径执行 `resumeCommand`；底层 adapter 将 token 显式传回 `--approve` |
 | 频繁重复确认 | 对可信本地只读使用 `trusted-local`；写入仍必须确认 |
-| Nocturne 显示 `unconfigured` | 执行项目级 `nocturne configure`；不会自动继承宿主 MCP 配置 |
+| Nocturne 显示 `available-not-enabled` | 在项目运行 `hellodev onboard`；旧项目不会静默启用 bundled memory |
+| Nocturne 显示 `unconfigured` | 当前不是 unified bundle，或选择了 `--without-memory`；可改用 external `nocturne configure` |
 | recall 拒绝查询 | 缩小 `domain`、`limit` 和 namespace scope |
 | `usage collect` 报 unavailable | 当前没有已完成回合；在下一回合重试，并确认 `CODEX_THREAD_ID` / session 可用 |
 | `usage collect` 报缺少 subagent/session 或事件错误 | 保持 unavailable；修复 rollout 可用性后重试，不记录部分值、不估算 |
@@ -465,6 +483,12 @@ Control Center 是 **read-only + copy-only**：
 | checkpoint mismatch | 用独立保存的 checkpoint 核对 ledger head；不要自动覆盖或把本地副本当远程见证 |
 | Dashboard 401 | 执行 `dashboard stop` 后重新 `start`，使用新链接 |
 | 流程卡住 | 运行 `hellodev resume` 和 `hellodev doctor --fix-hints` |
+
+## 14. 许可证与验证边界
+
+HelloDev Core 源码和 Core wheel 使用 [MIT License](../LICENSE)。平台 bundle 还包含使用 **AGPL-3.0-only** 的 Trellis、使用 MIT 的 Nocturne，以及按各自许可证分发的 Node.js、Python 和第三方依赖。整包应以随包 `LICENSES`、`THIRD_PARTY_NOTICES.md`、SBOM 和 source materials 为准；Core 的 MIT 许可证不覆盖第三方载荷。
+
+发布 SHA-256 与 `components verify` 解决的是发布 archive 和本地文件的一致性问题。它们不代替代码签名、远程 provenance、不可篡改见证或独立法律审查。
 
 ## 下一步
 

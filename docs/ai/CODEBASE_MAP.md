@@ -1,7 +1,7 @@
 # HelloDev Core codebase map
 
-Last refreshed: 2026-07-17
-Scope: HelloDev 0.12.1 reliability hardening, PEP 561 Host SDK, CI/Demo OSS surfaces, and Dashboard schema v7 on the released 0.12.0 baseline
+Last refreshed: 2026-07-20
+Scope: released HelloDev 0.14.1 unified distribution on the retained 0.13.0 ProjectClient/MCP baseline
 
 ## Source and runtime boundaries
 
@@ -11,10 +11,26 @@ Scope: HelloDev 0.12.1 reliability hardening, PEP 561 Host SDK, CI/Demo OSS surf
 | A selected project's `.hellodev/` | Per-project config, lifecycle, caches, tasks, receipts, Sagas, leases | Runtime state created by explicit HelloDev commands. |
 | A selected project's `.trellis/` | Upstream project workflow and memory | Repository authority; HelloDev reads/calls it through bounded adapters. |
 | Configured Nocturne stdio MCP | Cross-project advisory memory | External, fallible context; never repository authority. |
+| Extracted 0.14 platform bundle | Immutable component/runtime payload | Manifest-checked local bytes; not a signature, provenance witness, or legal conclusion. |
+| Selected HelloDev home | Runtime marker and Nocturne writable data | User-writable data plane, separate from the bundle payload and project state. |
 | `outputs/hellodev` | Legacy Codex-plugin reference | Frozen evidence, never an active build source. |
 | Versioned release copies | Immutable source/wheel evidence | Must remain separate from source and installed caches. |
 
-HelloDev does not patch Trellis/Nocturne, merge databases, read or edit Codex/Cursor configuration, require Codex Desktop, bootstrap a host, or install itself globally. These are product boundaries, not pending automatic setup behavior.
+## 0.13.0 retained baseline
+
+0.13.0 established the typed, root-bound `ProjectClient`, the exact six-tool optional stdio MCP gateway, and read-only `integrate show/check`. CLI and MCP share the same daily application path; no tool accepts a replacement root, arbitrary executable/argv, generic adapter, policy operation, Dashboard action, or HostEnvelope operation. This baseline remains the application contract underneath 0.14. _Fact — independently verified from source/config and inherited 0.13 release evidence._
+
+## 0.14.1 implemented distribution surfaces
+
+- `components.py` owns strict manifest parsing, component-lock checks, bundled-first resolution, request-scoped verification reuse, runtime identity, setup, and local integrity reporting. Selecting a bundle prevents fallback to ambient PATH when the bundle is invalid. _Fact — full source read._
+- Bundled Trellis launches with an exact Node-plus-CLI prefix and binds Node, Trellis entry points, the manifest, and its verified Python dependency into approval identity. Existing external PATH mode remains available only when no bundle is selected. _Fact — full source read of `components.py` and `adapters/trellis.py`._
+- Bundled Nocturne launches headlessly through `nocturne_runner.py`; payload code remains manifest-controlled while config and SQLite remain under the selected HelloDev home. Project config stores a symbolic bundled selection rather than an install path. _Fact — full source read of runner, project, and adapter code._
+- Capability fingerprints include the component runtime fingerprint. Explicit `onboard` is the compatibility boundary, so 0.13 projects do not silently gain memory access. _Fact — full source read of `capabilities.py`, `project.py`, and `onboarding.py`._
+- `onboarding.py` may explicitly write project-scoped Cursor/Codex configuration after conflict and path preflight. `integrations.py` itself remains read-only and renders/checks snippets only; neither surface writes user-level host configuration. _Fact — full source read._
+- `bundle_builder.py` and the build/verify scripts produce deterministic strict archives with component locks, notices, licenses, source materials, SBOM, traversal/link/collision checks, and exact post-build verification. _Fact — full source read and exact Windows artifact smoke._
+- The Core wheel remains `py3-none-any` and MIT-licensed. Platform runtimes and the separately licensed Trellis/Nocturne payloads belong only to platform archives. _Fact — independently verified from package metadata and distribution files._
+
+The first 0.14 release target is Windows x86_64. Linux/macOS are not supported release claims until their own exact archives pass the same offline gate. Manifest and SHA-256 checks establish local byte consistency only; they are not signatures, remote provenance, tamper-proofing, or legal review.
 
 ## Package topology
 
@@ -23,8 +39,11 @@ packages/hellodev-core/
   pyproject.toml
   README.md
   CONTRIBUTING.md                   contribution, privacy, and test contract
-  .github/workflows/ci.yml          bounded non-publishing fast/full matrix
+  .github/workflows/ci.yml          bounded non-publishing fast/full/MCP matrix
+  .github/workflows/publish.yml     release-only OIDC Trusted Publishing path
   scripts/verify.py                 fast/full validation split
+  scripts/build_unified_bundle.py   deterministic platform-archive builder entry
+  scripts/verify_unified_bundle.py  exact archive verification entry
   scripts/demo.ps1                  zero-upstream daily-flow demo
   examples/                         minimal CLI and typed Host SDK examples
   docs/
@@ -38,7 +57,15 @@ packages/hellodev-core/
     RELEASE.md                      build, smoke, migration gate
     ai/                             agent orientation documents
   src/hellodev/
-    cli.py                          grammar and orchestration
+    application.py                  typed, root-bound daily ProjectClient facade
+    cli.py                          grammar, output formatting, advanced dispatch
+    command_rendering.py            exact bundle launcher continuation rendering
+    components.py                   manifest/lock verification, resolution, setup
+    bundle_builder.py               deterministic strict platform archive builder
+    onboarding.py                   explicit project-scoped host/component setup
+    nocturne_runner.py              headless payload/data-separated Nocturne launch
+    mcp_gateway.py                  optional official-SDK six-tool stdio transport
+    integrations.py                 read-only Codex/Cursor snippet show/check
     routing.py                      deterministic open/next/do routes and bounded finished-work hint
     context_policy.py               pure L0/L1/L2 selection
     knowledge_flows.py              local-first recall, remember plans
@@ -72,6 +99,8 @@ packages/hellodev-core/
     usage_collector.py              bounded previous-completed-turn collector plus oldest-first backfill
     efficiency_cycles.py            trusted non-overlapping 20-turn deterministic reflection sidecar
     dashboard.py + dashboard_assets read/copy-only loopback Control Center
+    distribution/                   component lock and third-party notice source
+    schemas/component-bundle-v1...  strict bundle-manifest schema
   tests/
     test_f1_cli.py                  unified flow and profile integration
     test_f1_security.py             MCP failure and execution-identity binding
@@ -90,6 +119,9 @@ packages/hellodev-core/
     test_v12_reliability.py         WAL recovery, SDK, Canary v2, checkpoint, doctor/audit matrix
     test_v121_polish.py             receipt/WAL gap, concurrent recovery, CI checkpoint, typed SDK matrix
     test_v121_oss.py                CI/package/docs/example consistency and runnable SDK example
+    test_v13_gateway.py             ProjectClient/integration/progressive-help baseline
+    test_v13_mcp.py                 official-SDK six-tool stdio contract
+    test_v14_distribution.py        bundle, resolver, onboarding, data and path security
 ```
 
 ## F1 request flow
@@ -341,7 +373,7 @@ Receipts are schema v3 and hash-only. v1/v2 stores normalize to `strict`/`token-
 
 The Host SDK is a PEP 561 package (`py.typed`) with public typed errors and pending/reconcile/abandon surfaces. Core still stores no HostEnvelope context: a valid pending record routes to exact `host pending <id>`, which declares whether the external host must continue and provides a separate abandon command. Canary v2 adds missing-evidence and commit-eligibility diagnostics without changing its pass/fail rules.
 
-The GitHub Actions workflow is non-publishing: push/PR/manual triggers; concurrency group `hellodev-ci-${{ github.ref }}` with newer same-ref runs cancelling in-progress runs; `fail-fast=false`; Ubuntu/Windows × Python 3.10/3.12 fast; Ubuntu 3.12 full after fast; wheel artifact retained seven days. PyPI upload and GitHub release remain external actions requiring separate authorization. The minimal Demo and Host SDK example use no Trellis/Nocturne installation.
+The GitHub Actions workflow is non-publishing: push/PR/manual triggers; concurrency group `hellodev-ci-${{ github.ref }}` with newer same-ref runs cancelling in-progress runs; `fail-fast=false`; Ubuntu/Windows × Python 3.10/3.12 fast; Ubuntu 3.12 full after fast; wheel artifact retained seven days. Dependency-free jobs deliberately omit pip caching because no cache directory is created. The standalone GitHub source mirror is published and this matrix is green; PyPI upload and GitHub Release creation remain external actions requiring separate authorization. The minimal Demo and Host SDK example use no Trellis/Nocturne installation.
 
 ## Dashboard boundary
 
@@ -360,7 +392,7 @@ Full 0.12.0 release validation adds WAL crash/recovery phases, typed SDK/schema/
 
 ## Verification basis
 
-- **Fact — full source read:** `cli.py`, `transactions.py`, `host_sdk.py`, `host_bridge.py`, `checkpoints.py`, `policy_evolution.py`, `resume.py`, `audit.py`, `dashboard.py`, `pyproject.toml`, and `.github/workflows/ci.yml` define the public 0.12.1 contracts summarized above.
-- **Fact — behavior verified by focused tests:** `test_v121_polish.py`, `test_v121_oss.py`, and the 0.12/policy/host/resume/Dashboard regressions cover the new paths; artifact evidence still requires the final release gate.
+- **Fact — full source read:** the current application, component resolver, bundle builder, onboarding, integrations, adapters, package metadata, release workflow, and distribution schema define the 0.13 baseline and 0.14 source contracts summarized above.
+- **Fact — inferred from tests then checked against implementation:** `test_v13_gateway.py`, `test_v13_mcp.py`, `test_v14_distribution.py`, and inherited security/reliability suites cover source-level compatibility and fail-closed behavior.
 - **Fact — inherited then verified:** the daily F1/F2/optimization/disclosure contracts originated in earlier release docs and remain exercised by the existing regression suites.
-- **Release evidence boundary:** wheel/source hashes, isolated-install results, and independent release paths are versioned in the root development ledger and release report rather than duplicated in this architecture map.
+- **Release evidence boundary:** 0.14.1 completed fast 183/full 215 tests with two expected environment skips, exact Windows x86_64 offline smoke, isolated base-wheel smoke, and a separate immutable release directory. Exact hashes remain centralized in the root development ledger and versioned release report.
