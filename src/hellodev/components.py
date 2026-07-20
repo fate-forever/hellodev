@@ -725,7 +725,7 @@ def _resolve_component(name: Literal["trellis", "nocturne"], value: str | Path |
     if name == "trellis":
         python_command = _expand(environment.get("TRELLIS_PYTHON_CMD", ""), root, home_data)
         try:
-            python_relative = Path(python_command).resolve().relative_to(root).as_posix()
+            python_relative = _lexical_absolute(python_command).relative_to(root).as_posix()
         except ValueError as error:
             raise ComponentError("bundled Trellis Python command must stay inside the verified bundle") from error
         expected_launcher = "bin/trellis-python.cmd" if current_target()["os"] == "windows" else "bin/trellis-python"
