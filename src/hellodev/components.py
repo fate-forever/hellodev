@@ -822,11 +822,16 @@ def runtime_fingerprint() -> str:
 
 
 def _setup(home: str | Path | None = None) -> dict[str, Any]:
+    configured_bundle = os.environ.get("HELLODEV_BUNDLE_ROOT")
+    configured_home = os.environ.get("HELLODEV_HOME")
+    if configured_bundle and configured_home and _is_lexically_within(
+        _lexical_absolute(configured_home), _lexical_absolute(configured_bundle)
+    ):
+        raise ComponentError("HelloDev home must be outside the immutable bundle root")
     report = verify_all()
     selected_home = _lexical_absolute(home) if home is not None else _lexical_absolute(default_home())
     _reject_reparse_chain(selected_home, "HelloDev home")
     bundle = _lexical_absolute(report["bundleRoot"])
-    configured_bundle = os.environ.get("HELLODEV_BUNDLE_ROOT")
     configured_bundle_root = _lexical_absolute(configured_bundle) if configured_bundle else None
     if _is_lexically_within(selected_home, bundle) or (
         configured_bundle_root is not None and _is_lexically_within(selected_home, configured_bundle_root)
