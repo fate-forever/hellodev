@@ -528,7 +528,7 @@ Get-FileHash .\dist\hellodev_core-0.14.1-py3-none-any.whl -Algorithm SHA256
 
 CI 在 Ubuntu/Windows、Python 3.10/3.12 上运行 fast；全部 fast 通过后，Ubuntu Python 3.12 再运行 full 并构建保留 7 天的 wheel candidate。工作流使用按 ref 分组的 concurrency，较新的同组运行会取消进行中的旧运行，matrix `fail-fast=false`。
 
-0.14.1 在 0.13.0 基线上增加严格组件清单、bundled-first 运行时解析、Nocturne 数据隔离、显式 setup/onboard 和确定性平台 bundle 构建/校验。发布门禁通过：fast 183 项、full 215 项，均为零失败和 2 个预期环境跳过；exact Windows x86_64 archive 在 clean HOME、污染 PATH/环境变量、中文空格路径下完成 Trellis 初始化/task runner、Nocturne 7 工具、HelloDev MCP 6 工具、二次完整性和隔离 base-wheel smoke。最终冷启动实测约为 `open 1.659s`、`status 1.156s`。精确哈希和独立制品见原研究工作区的 `outputs/hellodev-core-releases/0.14.1/`。
+0.14.1 在 0.13.0 基线上增加严格组件清单、bundled-first 运行时解析、Nocturne 数据隔离、显式 setup/onboard 和确定性平台 bundle 构建/校验。当前源码门禁以 `fast` 和 `full` 为准；只有完成 exact Windows x86_64 archive 的离线 smoke、生成 SHA-256/SBOM/NOTICE，并将制品附到对应 GitHub Release 后，该平台才算受支持。源仓库不携带 Trellis/Nocturne 上游树、运行时、数据库或可下载 bundle；请以 Release 页面中的精确校验和与发布报告为准。
 
 以下 **0.11.0 历史发布证据保持不变**，但不代表当前 0.14.1 已完成发布：
 
