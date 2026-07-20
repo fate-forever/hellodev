@@ -192,6 +192,12 @@ def _onboard(
     prepare_trellis: bool = False,
 ) -> dict[str, Any]:
     selected = resolve_root(root)
+    configured_bundle = os.environ.get("HELLODEV_BUNDLE_ROOT")
+    if configured_bundle and (
+        components._is_lexically_within(components._lexical_absolute(root), components._lexical_absolute(configured_bundle))
+        or components._is_lexically_within(selected, components._lexical_absolute(configured_bundle))
+    ):
+        raise ProjectError("project root must be outside the immutable HelloDev bundle")
     selected_bundle = components.bundle_root()
     if selected_bundle is not None:
         if components._is_lexically_within(selected, selected_bundle):
