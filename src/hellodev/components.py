@@ -116,6 +116,24 @@ def _lexical_absolute(value: str | Path) -> Path:
     return Path(os.path.abspath(os.fspath(Path(value).expanduser())))
 
 
+def _is_lexically_within(candidate: str | Path, root: str | Path) -> bool:
+    """Return whether an absolute path is under a root without following links.
+
+    `Path.relative_to()` compares Windows path spelling case-sensitively in some
+    hosted-Python combinations.  Bundle write boundaries must instead follow
+    the platform's path-equivalence rules, while reparse-point checks remain
+    separate and mandatory.
+    """
+
+    candidate_value = os.path.normcase(os.path.normpath(os.fspath(candidate)))
+    root_value = os.path.normcase(os.path.normpath(os.fspath(root)))
+    try:
+        shared = os.path.commonpath((candidate_value, root_value))
+    except ValueError:
+        return False
+    return shared == root_value
+
+
 def _reject_reparse_chain(path: Path, label: str) -> None:
     for candidate in (path, *path.parents):
         if _is_link_or_reparse(candidate):
@@ -808,11 +826,7 @@ def _setup(home: str | Path | None = None) -> dict[str, Any]:
     selected_home = _lexical_absolute(home) if home is not None else _lexical_absolute(default_home())
     _reject_reparse_chain(selected_home, "HelloDev home")
     bundle = _lexical_absolute(report["bundleRoot"])
-    try:
-        selected_home.relative_to(bundle)
-    except ValueError:
-        pass
-    else:
+    if _is_lexically_within(selected_home, bundle):
         raise ComponentError("HelloDev home must be outside the immutable bundle root")
     if home is not None and selected_home != _lexical_absolute(default_home()):
         raise ComponentError("custom --home must also be selected through HELLODEV_HOME so later component launches use it")

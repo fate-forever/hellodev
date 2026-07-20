@@ -194,11 +194,7 @@ def _onboard(
     selected = resolve_root(root)
     selected_bundle = components.bundle_root()
     if selected_bundle is not None:
-        try:
-            selected.relative_to(selected_bundle)
-        except ValueError:
-            pass
-        else:
+        if components._is_lexically_within(selected, selected_bundle):
             raise ProjectError("project root must be outside the immutable HelloDev bundle")
     if host not in {"cursor", "codex", "none"}:
         raise ProjectError("onboard host must be cursor, codex, or none")
