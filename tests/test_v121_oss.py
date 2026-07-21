@@ -45,6 +45,11 @@ class V121OssTests(unittest.TestCase):
         self.assertIn("Git 仓库只包含 HelloDev Core 源码", readme)
         self.assertIn("git clone 只含 HelloDev Core", quick_start)
         self.assertIn("不要虚构 bootstrap.ps1", quick_start)
+        self.assertIn("## 核心优势与使用场景", readme)
+        self.assertIn("## 架构与边界", readme)
+        self.assertIn("Deterministic intent router", readme)
+        self.assertIn("sequenceDiagram", readme)
+        self.assertGreaterEqual(readme.count("```mermaid"), 2)
         self.assertLess(readme.index("先把这段发给 Agent"), readme.index("源码/Core 安装"))
         self.assertLess(quick_start.index("复制给 Codex / Cursor Agent"), quick_start.index("手工安装参考"))
         for path in (
