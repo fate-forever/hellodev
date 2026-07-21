@@ -108,7 +108,7 @@ def _cli(*arguments: str) -> tuple[int, dict, str]:
 
 class V14DistributionTests(unittest.TestCase):
     def test_component_lock_and_schema_match_release(self) -> None:
-        self.assertEqual(__version__, "0.14.1")
+        self.assertEqual(__version__, "0.14.2")
         self.assertEqual(components.component_lock()["distributionVersion"], __version__)
         schema = json.loads(
             (Path(__file__).parents[1] / "src" / "hellodev" / "schemas" / "component-bundle-v1.schema.json").read_text(

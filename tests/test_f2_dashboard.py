@@ -505,7 +505,7 @@ class F2DashboardTests(unittest.TestCase):
         self.assertNotIn("<input", markup)
         self.assertIn("Canary Evaluation v2", markup)
         self.assertIn("Portable checkpoint", markup)
-        self.assertIn("HELLODEV 0.14.1", markup)
+        self.assertIn("HELLODEV 0.14.2", markup)
 
 
 if __name__ == "__main__":

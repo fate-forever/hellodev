@@ -1,101 +1,59 @@
-# HelloDev Core 0.14.1 release checklist
+# HelloDev Core 0.14.2 release checklist
 
-0.14.1 adds task-continuity and truthful Control Center projections on the
-manifest-checked unified distribution introduced in 0.14.0. A platform bundle
-may carry Trellis and Nocturne, but they remain separate processes and data
-planes; recovery remains `resume`, and external or policy writes still require
-exact approval. The first release target is Windows x86_64 only.
+0.14.2 is an Agent-first onboarding and documentation patch on the validated
+0.14.1 runtime. It aligns package, schema, component lock, Dashboard, tests,
+README and Quick Start without changing Host protocol, state schema, adapter,
+approval, lifecycle or distribution behavior.
+
+The source publication and a self-contained platform bundle are separate
+deliverables. Pushing the Core source does not mean that an archive, GitHub
+Release, PyPI package or bundled Trellis/Nocturne runtime exists.
 
 ## 1. Version and source boundary
 
-Confirm `0.14.1` agrees in:
+Confirm `0.14.2` agrees in:
 
-- `pyproject.toml`;
-- `src/hellodev/__init__.py`;
-- README and Quick Start;
-- `src/hellodev/distribution/component-lock-v1.json` and the component schema;
-- release artifact names and the exact `v0.14.1` tag.
+- `pyproject.toml` and `src/hellodev/__init__.py`;
+- README, Quick Start and this checklist;
+- `src/hellodev/distribution/component-lock-v1.json`;
+- `src/hellodev/schemas/component-bundle-v1.schema.json`;
+- Dashboard markup, release scripts and version tests.
 
-The editable source remains `packages/hellodev-core`. Preserve all earlier
-release directories. Do not install from, link to, or mutate the development
-tree when producing the release snapshot.
+The editable source is `packages/hellodev-core`. GitHub publication must use an
+independent real working copy. Preserve all existing `outputs/` snapshots,
+installed caches and tags; never link them to the editable source.
 
-## 2. Unified component and bundle gate
+## 2. Agent-first documentation gate
 
-The portable Core wheel contains only the resolver, lock, builder, notices and
-schema. It must remain a truthful `py3-none-any` artifact. Platform runtimes
-and upstream payloads belong in separate archives.
+README and Quick Start must begin with a copyable Codex/Cursor protocol before
+manual commands. Verify that the protocol:
 
-For every declared platform archive, verify all of the following against the
-exact candidate artifact:
+- lets the Agent install, integrate and run ordinary commands;
+- requires reading `AGENTS.md` and any existing Trellis workflow/task state;
+- prefers an exact verified bundle only when that asset really exists;
+- states that `git clone` contains only HelloDev Core;
+- never claims the source checkout carries Trellis, Nocturne, Python or Node;
+- never documents a nonexistent bootstrap script or an unpublished PyPI path;
+- limits host changes to project configuration and preserves conflicting data;
+- keeps approval, external writes and product choices human-confirmed;
+- preserves `open -> next -> do` and `resume` as the default story.
 
-- manifest paths are relative, case-unique, regular, non-link files;
-- Trellis/Nocturne version, revision, repository and SPDX license match the
-  packaged lock;
-- every controlled byte has exact size and lowercase SHA-256;
-- no `.git`, venv/cache, live `config.json`, database, WAL/SHM, backup, log,
-  secret, existing memory, or developer absolute path is present;
-- Trellis includes exact corresponding source and build inputs required by
-  its AGPL-3.0-only distribution terms;
-- Nocturne includes its MIT license, and runtime/npm/Python dependencies have
-  an SBOM and notices;
-- `components verify`, `setup`, and `onboard` are idempotent in a clean HOME;
-- a poisoned/empty PATH cannot override a valid bundle, and a corrupt bundle
-  never falls back to PATH;
-- Nocturne configuration/SQLite is created only in its separate data root;
-- no user-level host config, PATH, registry, shell profile, or existing DB is
-  inspected or changed.
+Run the Markdown link/fence regression in `tests.test_v121_oss` and inspect the
+rendered first screen before publication.
 
-The source gate uses deterministic fake components. A release claim that users
-need no separate Trellis/Nocturne installation additionally requires an exact,
-offline, per-platform archive smoke. Component hashes are not signatures or a
-remote provenance witness. Matching SPDX identifiers, notices, source material,
-and manifest hashes is also not a legal opinion or final compliance review.
-
-For 0.14.1, only a Windows x86_64 archive may be listed as supported. Linux and
-macOS remain pending until their own exact archives pass the same offline gate;
-portable source/fixture tests are not sufficient evidence.
-
-## 3. Shared application facade gate
+## 3. Core application and MCP gate
 
 Verify:
 
-- `ProjectClient` binds one canonical root at construction;
-- `open`, `next`, `resume`, `status`, `context`, and `do` preserve CLI result
-  shapes and `ProjectError` behavior;
-- the client has no cross-call capability, executable, profile, lease, or
-  approval cache;
-- per-intent input allowlists reject unknown or cross-intent fields;
-- finish still checks the gate before lifecycle transition;
-- Trellis and Nocturne execution still use the existing exact preparation,
-  identity binding, receipt, evidence, lease, and Saga paths;
-- remember writes remain token-required under every authorization profile.
-
-Run during development:
-
-```powershell
-python -m unittest tests.test_v13_gateway tests.test_f1_cli tests.test_f1_security -v
-```
-
-## 4. Optional official MCP SDK gate
-
-The base wheel must have no unconditional dependency and must import
-`hellodev`, `ProjectClient`, CLI, and Host SDK without importing `mcp`.
-`hellodev mcp serve` without the extra must fail cleanly with:
-
-```text
-Install MCP support with: pipx install "hellodev-core[mcp]"
-```
-
-This is the runtime help contract, not evidence that 0.14.1 is currently
-available from PyPI. Local release validation must install the exact candidate
-wheel plus pinned `mcp==1.28.1` from a controlled wheelhouse. Public-index
-installation may be documented only after the separately authorized upload and
-an independent install check succeed.
-
-The optional extra is pinned to the verified `mcp==1.28.1`. In an isolated extra-enabled
-environment, start the exact wheel over stdio with the official client and
-verify initialize, `tools/list`, and calls to exactly these tools:
+- `ProjectClient` binds one canonical root and has no cross-call approval cache;
+- `open`, `next`, `resume`, `status`, `context` and `do` preserve result shapes;
+- per-intent allowlists reject unknown fields;
+- finish still checks gate policy;
+- Trellis and Nocturne use existing prepare/approve/receipt/Saga paths;
+- every profile continues to require confirmation for writes;
+- the base wheel has no unconditional dependencies or `mcp` import;
+- `hellodev-core[mcp]` remains pinned to `mcp==1.28.1`;
+- the stdio gateway exposes exactly six root-bound tools:
 
 ```text
 hellodev_open
@@ -106,73 +64,102 @@ hellodev_context
 hellodev_do
 ```
 
-No tool accepts a root, cwd, executable, argv, arbitrary adapter, environment,
-policy operation, Dashboard operation, HostEnvelope operation, or generic
-native command. Read tools do not mutate `.hellodev/`; `open` and `do` are
-serialized in-process. Request/result limits and exact approval semantics must
-fail closed.
+No MCP tool accepts arbitrary root, cwd, executable, argv, environment, adapter,
+policy, Dashboard, HostEnvelope or native commands.
 
-## 5. Integration and progressive disclosure gate
+## 4. Source/Core installation gate
 
-Verify:
+From a clean checkout and fresh Python 3.10–3.12 environment:
 
 ```powershell
-hellodev integrate show --host codex
+python -m pip install -e ".[mcp]"
+hellodev --version
 hellodev integrate show --host cursor
-hellodev integrate check --host codex
-hellodev --help
-hellodev --help-all
+hellodev integrate check --host cursor
+hellodev open
+hellodev next
 ```
 
-`integrate` may render and validate a project-scoped snippet, executable, root,
-SDK availability, and server construction. It must not read or modify global or
-project Codex/Cursor configuration. Default help exposes the thin daily/setup
-surface; `--help-all` discloses advanced governance and native adapters.
+The documentation must not use `onboard` as the Core path: `onboard` is the
+verified unified-distribution workflow. Core uses `open` plus `integrate
+show/check`, and reuses separately installed adapters or degrades to local-only.
 
-## 6. CI and Trusted Publishing readiness
+## 5. Unified component and bundle gate
 
-The ordinary CI workflow remains non-publishing and has only `contents: read`.
-It verifies the dependency-free matrix, full gate, wheel candidate, and an
-official MCP-extra job.
+The Core wheel contains the resolver, lock, builder, notices and schema, not
+upstream payloads. A platform archive is a separately built artifact. For every
+declared archive verify:
 
-The separate `publish.yml` must:
+- paths are relative, case-unique, regular and non-link;
+- component version, revision, repository and SPDX metadata match the lock;
+- every controlled byte has exact size and lowercase SHA-256;
+- no `.git`, venv/cache, live config/database/WAL/log, secret, memory or
+  developer absolute path is included;
+- Trellis includes corresponding source/build inputs required by its license;
+- Nocturne and all runtimes/dependencies include licenses, notices and SBOM;
+- `components verify`, `setup` and `onboard` are idempotent in a clean HOME;
+- poisoned/empty PATH cannot override a valid bundle;
+- corrupt bundled bytes never fall back to PATH;
+- Nocturne writable state stays outside the immutable bundle;
+- no global host config, PATH, registry, shell profile or existing DB changes.
+
+For 0.14.x, Windows x86_64 is the only implemented archive target. It becomes
+publicly supported for a specific version only after its exact final ZIP passes
+offline smoke and the matching SHA-256 is published with the asset. Fixture
+tests and a local unpublished archive are insufficient.
+
+Manifest hashes establish local byte consistency. They are not signatures,
+remote provenance, tamper-proofing, legal advice or final compliance approval.
+
+## 6. CI and publishing boundary
+
+Ordinary CI remains non-publishing with `contents: read`. It runs the Python
+3.10/3.12 Ubuntu/Windows fast matrix plus the Ubuntu full/wheel/MCP job.
+
+The separate PyPI workflow must:
 
 - trigger only from a published GitHub Release;
-- reject tags not matching exact `vMAJOR.MINOR.PATCH` or package metadata;
-- run the full gate and build wheel + sdist once;
-- upload and later download the exact tested artifacts;
-- use the protected `pypi` environment;
+- require an exact `vMAJOR.MINOR.PATCH` matching package metadata;
+- run the full gate and test the exact built artifacts;
+- use the protected `pypi` environment and Trusted Publishing;
 - grant `id-token: write` only to the publish job;
-- use PyPI Trusted Publishing with no API token and no manual-dispatch bypass.
+- have no API token or manual-dispatch bypass.
 
-Creating the tag/release, configuring the GitHub/PyPI environment, or uploading
-to PyPI remains a separately authorized external action.
+Source push, tag, Release, asset upload, PyPI publication and user-level install
+are distinct externally visible actions and require the corresponding user
+authorization. The 0.14.2 documentation/source push does not create the others.
 
-## 7. Full local release gate
+## 7. Validation commands
 
-After all source and documentation changes:
+Focused version/document/distribution tests:
 
 ```powershell
+python -m unittest tests.test_v121_oss tests.test_v13_gateway tests.test_v14_distribution tests.test_f2_dashboard -v
+```
+
+Full release gate:
+
+```powershell
+python scripts\verify.py --scope fast
 python scripts\verify.py --scope full
 python -m pip wheel . --no-deps --no-cache-dir --no-build-isolation --wheel-dir dist
 ```
 
-From fresh environments, verify the exact base wheel with `--no-index
---no-deps`, then the exact wheel plus the official MCP SDK extra. Run the
-zero-upstream Demo, Host SDK example, version/help/integration commands, stdio
-initialize/list/call smoke, Python compile, Dashboard JavaScript syntax, and
-source privacy/boundary scans.
+From fresh environments, smoke the exact base wheel with `--no-index --no-deps`
+and the exact wheel plus official MCP SDK. Also run the zero-upstream Demo, Host
+SDK example, version/help/integration commands, stdio initialize/list/call,
+Python compile, Dashboard JavaScript syntax and source boundary/privacy scans.
 
-The full gate must preserve all 0.12.1 reliability contracts, the 0.13
-ProjectClient/MCP contracts, and the 0.14 distribution, approval identity,
-data-isolation, privacy, and copy-only Dashboard contracts.
+The gate must preserve all 0.12 reliability contracts, 0.13 ProjectClient/MCP
+contracts and 0.14 distribution, task-continuity, approval identity, data
+isolation and copy-only Dashboard contracts.
 
-## 8. Independent release artifact
+## 8. Optional independent release artifact
 
-Only after every gate passes, create a new real directory:
+Only after every release gate passes may maintainers create a new real directory:
 
 ```text
-outputs/hellodev-core-releases/0.14.1/
+outputs/hellodev-core-releases/0.14.2/
 ├─ source/
 ├─ python/
 ├─ bundles/
@@ -185,25 +172,10 @@ outputs/hellodev-core-releases/0.14.1/
 └─ RELEASE.md
 ```
 
-Include a clean source snapshot, exact wheel, and release report. Record:
+Record exact suite results, source aggregate, wheel name/size/SHA-256 and each
+platform archive's offline smoke. If no archive was built or published, say so
+explicitly; do not leave a placeholder that users can mistake for a release.
 
-```text
-Version: 0.14.1
-Focused suites: <result>
-Full suite: <result>
-Base wheel smoke: <result>
-Official MCP stdio smoke: <result>
-Integration/progressive-help checks: <result>
-Fixture bundle build/verify/security: <result>
-Exact platform bundle offline smoke: <result or explicitly not released>
-Source files: <count>
-Source aggregate SHA-256: <sha256>
-Wheel: hellodev_core-0.14.1-py3-none-any.whl
-Wheel bytes: <bytes>
-Wheel SHA-256: <sha256>
-Independent release directory: outputs/hellodev-core-releases/0.14.1/
-```
-
-GitHub push/release, PyPI upload, global installation, live user-memory access,
-Codex plugin changes, upstream modification, legal sign-off, code signing, and
-user-level configuration mutation are not part of this local release build.
+GitHub source publication alone must exclude upstream source trees, private
+state, databases, archives, wheels, build/cache output, local machine paths and
+the private development progress ledger.

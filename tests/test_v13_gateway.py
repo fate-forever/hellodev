@@ -130,7 +130,7 @@ class V13GatewayTests(unittest.TestCase):
         pyproject = (PACKAGE_ROOT / "pyproject.toml").read_text(encoding="utf-8")
         ci = (PACKAGE_ROOT / ".github" / "workflows" / "ci.yml").read_text(encoding="utf-8")
         publish = (PACKAGE_ROOT / ".github" / "workflows" / "publish.yml").read_text(encoding="utf-8")
-        self.assertIn('version = "0.14.1"', pyproject)
+        self.assertIn('version = "0.14.2"', pyproject)
         self.assertIn("dependencies = []", pyproject)
         self.assertIn('mcp = ["mcp==1.28.1"]', pyproject)
         self.assertIn('python -m pip install ".[mcp]"', ci)
@@ -145,7 +145,7 @@ class V13GatewayTests(unittest.TestCase):
         self.assertIn('mcp-smoke/bin/python -m pip install "mcp==1.28.1"', publish)
         self.assertIn("mcp-smoke/bin/python scripts/mcp_smoke.py", publish)
         self.assertTrue((PACKAGE_ROOT / "scripts" / "mcp_smoke.py").is_file())
-        self.assertEqual(verify_release_version("v0.14.1")["version"], "0.14.1")
+        self.assertEqual(verify_release_version("v0.14.2")["version"], "0.14.2")
         with self.assertRaisesRegex(ValueError, "release version mismatch"):
             verify_release_version("v0.14.0")
 
