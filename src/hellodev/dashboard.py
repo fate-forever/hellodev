@@ -86,8 +86,14 @@ def _continuity_snapshot(root:Path):
    decision=sagas.next_step(root,state["id"])
    incomplete.append({"id":state["id"],"phase":state["phase"],"updatedAt":state.get("updatedAt"),"nextCommand":decision["command"],"reasonCode":decision["reasonCode"],"requiresInput":decision["requiresInput"]})
  lessons=[]
- for proposal in sorted(contracts.list_lesson_proposals(root),key=lambda item:(item["updatedAt"],item["id"]),reverse=True):
-  lessons.append({key:proposal[key] for key in ("id","lessonSha256","scope","destination","evidenceReceiptId","sagaId","state","updatedAt")})
+ for proposal in sorted(contracts.list_lesson_review_projections(root),key=lambda item:(item["updatedAt"],item["id"]),reverse=True):
+  lessons.append({
+   "id":proposal["id"],"lessonSha256":proposal["lessonSha256"],"scope":proposal["scope"],"destination":proposal["destination"],
+   "evidenceReceiptId":proposal["evidenceReceiptId"],"evidenceReceiptCount":len(proposal["evidenceReceiptIds"]),"sagaId":proposal["sagaId"],
+   "state":proposal["state"],"reviewState":proposal["reviewState"],"effectiveReviewState":proposal["effectiveReviewState"],
+   "reviewReasonCode":proposal["reviewReasonCode"],"expiresAt":proposal["expiresAt"],"supersededBy":proposal["supersededBy"],
+   "reviewRequired":proposal["reviewRequired"],"reviewCommand":proposal["reviewCommand"],"updatedAt":proposal["updatedAt"],
+  })
  return {
   "schemaVersion":1,
   "readOnly":True,
@@ -273,7 +279,7 @@ def snapshot(root:Path,instance:str,started:str):
  saga_count=sum(1 for p in paths.sagas_dir.glob("saga-*.json") if p.is_file() and not p.is_symlink())
  def adapt(name):
   v=ad.get(name,{"state":"cache-missing"});return {"state":v.get("state","unknown"),"detail":v.get("reason",v.get("execution","ready"))}
- return rewrite_commands({"schemaVersion":8,"generatedAt":utc_now(),"instanceId":instance,"startedAt":started,"readOnly":True,"lifecycle":{"phase":life["phase"],"cycleId":life["cycleId"],"completedCycleCount":len(life["completedCycles"])},"tasks":{"localCount":len(list_tasks(root)),"trellisActiveCount":len(contracts.list_trellis_tasks(root)),"linkedWorkItemCount":len(contracts.list_work_items(root))},"capabilities":{"state":caps["state"]},"adapters":{"trellis":adapt("trellis"),"nocturne":adapt("nocturne")},"briefs":brief_items,"usage":usage,"efficiencyCycle":_efficiency_cycle_snapshot(root),"continuity":continuity,"optimization":optimize,"advanced":advanced,"audit":{"receipts":len(receipts.list_receipts(root)),"sagas":saga_count,"optimizationTraces":optimize["traceCount"],"reflectionReports":optimize["reportCount"],"evolutionProposals":optimize["proposalCount"],"hostCompletions":advanced["host"]["completionCount"],"pendingTransactions":advanced["transactions"]["pendingCount"],"pendingHostEnvelopes":advanced["host"]["pendingEnvelopeCount"],"policyEvents":advanced["policy"]["eventCount"],"driftFindings":advanced["drift"]["findingCount"],**continuity["auditSummary"]},"actions":[{"label":"刷新能力","command":"hellodev capabilities refresh"},{"label":"构建 L0 brief","command":"hellodev brief build --level L0"},{"label":"进入计划阶段","command":"hellodev lifecycle plan"},{"label":"进入工作阶段","command":"hellodev lifecycle work"}]})
+ return rewrite_commands({"schemaVersion":9,"generatedAt":utc_now(),"instanceId":instance,"startedAt":started,"readOnly":True,"lifecycle":{"phase":life["phase"],"cycleId":life["cycleId"],"completedCycleCount":len(life["completedCycles"])},"tasks":{"localCount":len(list_tasks(root)),"trellisActiveCount":len(contracts.list_trellis_tasks(root)),"linkedWorkItemCount":len(contracts.list_work_items(root))},"capabilities":{"state":caps["state"]},"adapters":{"trellis":adapt("trellis"),"nocturne":adapt("nocturne")},"briefs":brief_items,"usage":usage,"efficiencyCycle":_efficiency_cycle_snapshot(root),"continuity":continuity,"optimization":optimize,"advanced":advanced,"audit":{"receipts":len(receipts.list_receipts(root)),"sagas":saga_count,"optimizationTraces":optimize["traceCount"],"reflectionReports":optimize["reportCount"],"evolutionProposals":optimize["proposalCount"],"hostCompletions":advanced["host"]["completionCount"],"pendingTransactions":advanced["transactions"]["pendingCount"],"pendingHostEnvelopes":advanced["host"]["pendingEnvelopeCount"],"policyEvents":advanced["policy"]["eventCount"],"driftFindings":advanced["drift"]["findingCount"],**continuity["auditSummary"]},"actions":[{"label":"刷新能力","command":"hellodev capabilities refresh"},{"label":"构建 L0 brief","command":"hellodev brief build --level L0"},{"label":"进入计划阶段","command":"hellodev lifecycle plan"},{"label":"进入工作阶段","command":"hellodev lifecycle work"}]})
 class Server(ThreadingHTTPServer):
  daemon_threads=True
  def __init__(self,address,root,token,control,instance,started):self.root=root;self.token=token;self.control=control;self.instance=instance;self.started=started;super().__init__(address,Handler)

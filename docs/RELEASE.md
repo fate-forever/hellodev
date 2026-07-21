@@ -1,9 +1,10 @@
-# HelloDev Core 0.14.2 release checklist
+# HelloDev Core 0.14.3 release checklist
 
-0.14.2 is an Agent-first onboarding and documentation patch on the validated
-0.14.1 runtime. It aligns package, schema, component lock, Dashboard, tests,
-README and Quick Start without changing Host protocol, state schema, adapter,
-approval, lifecycle or distribution behavior.
+0.14.3 adds an evidence-gated, hash-only LessonProposal review lifecycle and a
+bounded Nocturne recall projection on the validated 0.14.2 baseline. It does
+not add a memory database, model scoring, automatic external writes, or memory
+authority. Host protocol, adapter process boundaries and distribution behavior
+remain compatible; Dashboard projection schema advances to v9.
 
 The source publication and a self-contained platform bundle are separate
 deliverables. Pushing the Core source does not mean that an archive, GitHub
@@ -11,7 +12,7 @@ Release, PyPI package or bundled Trellis/Nocturne runtime exists.
 
 ## 1. Version and source boundary
 
-Confirm `0.14.2` agrees in:
+Confirm `0.14.3` agrees in:
 
 - `pyproject.toml` and `src/hellodev/__init__.py`;
 - README, Quick Start and this checklist;
@@ -66,6 +67,30 @@ hellodev_do
 
 No MCP tool accepts arbitrary root, cwd, executable, argv, environment, adapter,
 policy, Dashboard, HostEnvelope or native commands.
+
+## 3a. Knowledge lifecycle gate
+
+Verify all of the following:
+
+- schema-one LessonProposal files migrate on read without a write and upgrade
+  to schema two only on a requested mutation;
+- proposal stores remain hash/pointer metadata and never contain lesson or
+  evidence text;
+- pending TTL is 72 hours and read projection distinguishes effective expiry
+  from a materialized terminal decision;
+- cross-project verification and reactivation require verified Trellis
+  gate/test receipts; reactivation requires genuinely new evidence;
+- rejection requires a bounded reason code and supersede requires a compatible
+  replacement without cycles or self-reference;
+- completed remember/Saga flow marks the proposal persisted, while any external
+  write still uses exact approval;
+- `next` returns at most one read-only `lesson show` suggestion after higher
+  priority recovery and active work;
+- raw Nocturne MCP envelopes are receipt-hashed but not returned to the Agent;
+- recall output is deduplicated, bounded, source/authority/freshness labelled,
+  repository-first on conflict, and instruction-like memory is quarantined;
+- CLI, typed `ProjectClient` and read-only Dashboard expose the same review
+  semantics without storing raw memory.
 
 ## 4. Source/Core installation gate
 
@@ -127,7 +152,7 @@ The separate PyPI workflow must:
 
 Source push, tag, Release, asset upload, PyPI publication and user-level install
 are distinct externally visible actions and require the corresponding user
-authorization. The 0.14.2 documentation/source push does not create the others.
+authorization. The 0.14.3 source push does not create the others.
 
 ## 7. Validation commands
 
@@ -159,7 +184,7 @@ isolation and copy-only Dashboard contracts.
 Only after every release gate passes may maintainers create a new real directory:
 
 ```text
-outputs/hellodev-core-releases/0.14.2/
+outputs/hellodev-core-releases/0.14.3/
 ├─ source/
 ├─ python/
 ├─ bundles/

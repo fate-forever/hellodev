@@ -184,8 +184,8 @@ def main() -> int:
         "spdxVersion": "SPDX-2.3",
         "dataLicense": "CC0-1.0",
         "SPDXID": "SPDXRef-DOCUMENT",
-        "name": "HelloDev-0.14.2-windows-x86_64",
-        "documentNamespace": "https://github.com/fate-forever/hellodev/sbom/0.14.2/windows-x86_64",
+        "name": "HelloDev-0.14.3-windows-x86_64",
+        "documentNamespace": "https://github.com/fate-forever/hellodev/sbom/0.14.3/windows-x86_64",
         "creationInfo": {"created": "2026-07-20T00:00:00Z", "creators": ["Tool: hellodev-generate-bundle-metadata"]},
         "packages": spdx_packages,
         "relationships": relationships,
@@ -193,7 +193,7 @@ def main() -> int:
     (stage / "SBOM.spdx.json").write_text(json.dumps(sbom, indent=2, sort_keys=True) + "\n", encoding="utf-8")
 
     lines = [
-        "# HelloDev 0.14.2 third-party notices",
+        "# HelloDev 0.14.3 third-party notices",
         "",
         "This Windows archive redistributes independently launched components and runtimes.",
         "The declarations below are inventory metadata, not legal advice or a substitute for the exact license files under `licenses/`.",

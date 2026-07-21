@@ -148,6 +148,20 @@ def next_decision(root: Path) -> dict[str, Any]:
                 "suggestedLevel": "L1",
                 "executionPerformed": False,
             }
+    if lifecycle_state["phase"] == "finished":
+        pending_lesson = contracts.pending_lesson_review(root)
+        if pending_lesson is not None:
+            return {
+                "schemaVersion": 1,
+                "command": pending_lesson["reviewCommand"],
+                "reason": (
+                    f"LessonProposal {pending_lesson['id']} is {pending_lesson['effectiveReviewState']} and needs review; "
+                    "the command is read-only and does not persist memory."
+                ),
+                "reasonCode": "lesson-review-required",
+                "suggestedLevel": "L2",
+                "executionPerformed": False,
+            }
     decision: dict[str, Any] = {
         "schemaVersion": 1,
         **_lifecycle_decision(lifecycle_state["phase"]),
@@ -194,6 +208,7 @@ def build(root: Path) -> dict[str, Any]:
     pending_envelopes = host_bridge.pending_envelopes(root)
     policy = policy_evolution.status(root)
     checkpoint = checkpoints.status(root)
+    pending_lesson = contracts.pending_lesson_review(root)
     work_projection = None
     if work_item is not None:
         work_projection = {
@@ -222,6 +237,15 @@ def build(root: Path) -> dict[str, Any]:
         "pendingHostEnvelope": pending_envelopes[0] if pending_envelopes else None,
         "activeCanary": policy["activeCanary"],
         "checkpointState": checkpoint["state"],
+        "pendingLessonReview": (
+            {
+                "id": pending_lesson["id"],
+                "effectiveReviewState": pending_lesson["effectiveReviewState"],
+                "expiresAt": pending_lesson["expiresAt"],
+            }
+            if pending_lesson is not None
+            else None
+        ),
         "next": decision,
         "executionPerformed": False,
     }
@@ -237,6 +261,7 @@ def context_pack(root: Path, token_budget: int = 256) -> dict[str, Any]:
     transaction = projection.get("pendingTransaction")
     envelope = projection.get("pendingHostEnvelope")
     canary = projection.get("activeCanary")
+    lesson = projection.get("pendingLessonReview")
     lines = [
         "HelloDev resume",
         f"phase: {projection['lifecyclePhase'] or 'uninitialized'}",
@@ -252,6 +277,7 @@ def context_pack(root: Path, token_budget: int = 256) -> dict[str, Any]:
         f"host-envelope: {envelope['id']} pending" if envelope is not None else "host-envelope: none",
         f"canary: {canary['proposalId']} {canary['observedTurns']}/{canary['turnLimit']}" if canary is not None else "canary: none",
         f"checkpoint: {projection.get('checkpointState', 'not-saved')}",
+        f"lesson-review: {lesson['id']} {lesson['effectiveReviewState']}" if lesson is not None else "lesson-review: none",
         f"next: {projection['next']['command']}",
         f"reason: {projection['next']['reasonCode']}",
     ]

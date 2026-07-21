@@ -18,7 +18,15 @@ MAX_FILE_BYTES = 16_000
 MAX_TOTAL_BYTES = 64_000
 MAX_RESULTS = 5
 MAX_EXCERPT_CHARS = 320
+MAX_MEMORY_ITEMS = 5
+MAX_MEMORY_ITEM_CHARS = 1_200
 QUERY_TOKEN = re.compile(r"[A-Za-z0-9_.-]+|[\u3400-\u9fff]")
+MEMORY_INJECTION_PATTERN = re.compile(
+    r"ignore\s+(all\s+)?previous|system\s+prompt|developer\s+message|"
+    r"execute\s+(this\s+)?command|resumecommand|approve-[a-z0-9:-]+|"
+    r"忽略.{0,12}(指令|提示)|系统提示|执行.{0,12}命令",
+    re.IGNORECASE,
+)
 
 
 def _query(value: str) -> str:
@@ -171,6 +179,68 @@ def recall_plan(
         "nocturne": plan["nocturne"],
         "sourceLabel": "Long-term memory",
         "authority": "non-authoritative advisory context",
+        "persisted": False,
+    }
+
+
+def project_memory_result(result: dict[str, Any], local: dict[str, Any], limit: int | None) -> dict[str, Any]:
+    """Return bounded advisory memory text without exposing the raw MCP envelope.
+
+    Receipts still bind the full raw result by SHA-256.  This projection is
+    ephemeral and deliberately cannot grant authority or claim freshness.
+    """
+    if not isinstance(result, dict):
+        raise ProjectError("Nocturne result must be an object")
+    raw_digest = hashlib.sha256(
+        json.dumps(result, ensure_ascii=False, separators=(",", ":"), sort_keys=True).encode("utf-8")
+    ).hexdigest()
+    payload = result.get("result")
+    blocks = payload.get("content", []) if isinstance(payload, dict) else []
+    selected_limit = min(MAX_MEMORY_ITEMS, limit if type(limit) is int and limit > 0 else MAX_MEMORY_ITEMS)
+    items: list[dict[str, Any]] = []
+    seen: set[str] = set()
+    for block in blocks if isinstance(blocks, list) else []:
+        if not isinstance(block, dict) or block.get("type") != "text" or not isinstance(block.get("text"), str):
+            continue
+        normalized = block["text"].strip()
+        if not normalized:
+            continue
+        digest = hashlib.sha256(normalized.encode("utf-8")).hexdigest()
+        if digest in seen:
+            continue
+        seen.add(digest)
+        injection = MEMORY_INJECTION_PATTERN.search(normalized) is not None
+        truncated = len(normalized) > MAX_MEMORY_ITEM_CHARS
+        item: dict[str, Any] = {
+            "sourceLabel": "Long-term memory",
+            "contentSha256": digest,
+            "freshness": "unavailable",
+            "authority": "advisory-only",
+            "instructionAuthority": "none",
+            "quarantined": injection,
+            "reasonCodes": ["instruction-like-memory-quarantined"] if injection else [],
+            "truncated": truncated,
+        }
+        if not injection:
+            item["text"] = normalized[:MAX_MEMORY_ITEM_CHARS]
+        items.append(item)
+        if len(items) >= selected_limit:
+            break
+    quarantined = sum(1 for item in items if item["quarantined"])
+    return {
+        "sourceLabel": "Long-term memory",
+        "authority": "non-authoritative advisory context",
+        "instructionAuthority": "none",
+        "rawResultSha256": raw_digest,
+        "rawResultExposed": False,
+        "items": items,
+        "acceptedCount": len(items) - quarantined,
+        "quarantinedCount": quarantined,
+        "deduplicated": True,
+        "freshnessPolicy": "unknown-is-not-current",
+        "conflictPolicy": "repository-and-trellis-facts-win",
+        "conflictState": "repository-authority-preferred" if local.get("results") else "no-local-evidence",
+        "limits": {"items": selected_limit, "itemChars": MAX_MEMORY_ITEM_CHARS},
         "persisted": False,
     }
 

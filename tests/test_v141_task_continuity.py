@@ -41,7 +41,7 @@ class TaskContinuityTests(unittest.TestCase):
             self.assertEqual(contracts.current_work_item(root)["id"], result["workItem"]["id"])
             self.assertEqual(resume.next_decision(root)["command"], "hellodev do plan")
             state = dashboard.snapshot(root, "fixture", "2026-07-20T00:00:00Z")
-            self.assertEqual(state["schemaVersion"], 8)
+            self.assertEqual(state["schemaVersion"], 9)
             self.assertEqual(state["tasks"], {"localCount": 0, "trellisActiveCount": 1, "linkedWorkItemCount": 1})
 
     def test_activate_rejects_an_unfinished_lifecycle(self) -> None:

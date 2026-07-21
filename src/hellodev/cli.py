@@ -364,11 +364,18 @@ def _parser(show_all: bool = False) -> argparse.ArgumentParser:
     work_refresh = work_commands.add_parser("refresh", help="refresh a WorkItem phase and source fingerprint")
     work_refresh.add_argument("work_item_id", nargs="?", default=None)
 
-    lesson_parser = commands.add_parser("lesson", help="inspect hash-only F2 LessonProposals")
+    lesson_parser = commands.add_parser("lesson", help="inspect and review hash-only LessonProposals")
     lesson_commands = lesson_parser.add_subparsers(dest="lesson_command", required=True)
-    lesson_commands.add_parser("list", help="list LessonProposals")
+    lesson_list = lesson_commands.add_parser("list", help="list LessonProposals and effective review state")
+    lesson_list.add_argument("--review-state", choices=("pending", "verified", "rejected", "expired", "superseded", "persisted"))
     lesson_show = lesson_commands.add_parser("show", help="show one LessonProposal")
     lesson_show.add_argument("proposal_id")
+    lesson_review = lesson_commands.add_parser("review", help="apply one deterministic local review decision")
+    lesson_review.add_argument("proposal_id")
+    lesson_review.add_argument("--decision", required=True, choices=("verify", "reject", "expire", "supersede", "reactivate"))
+    lesson_review.add_argument("--receipt", default=None, help="verified Trellis gate/test receipt")
+    lesson_review.add_argument("--reason-code", default=None, help="bounded lowercase kebab-case reason")
+    lesson_review.add_argument("--replacement", default=None, help="replacement LessonProposal for supersede")
 
     gate_parser = commands.add_parser("gate", help="project current gate evidence without mutating Trellis")
     gate_commands = gate_parser.add_subparsers(dest="gate_command", required=True)
@@ -1131,16 +1138,13 @@ def _run_recall(root: Path, args: argparse.Namespace, prefix: list[str]) -> dict
         succeeded,
         authorization=authorization,
     )
+    memory_projection = knowledge_flows.project_memory_result(result, plan["local"], args.limit)
     return {
         **route,
         "state": "memory-result" if succeeded else "memory-error",
         "executionPerformed": True,
         "local": plan["local"],
-        "memory": {
-            "sourceLabel": "Long-term memory",
-            "authority": "non-authoritative advisory context",
-            **recorded,
-        },
+        "memory": {**memory_projection, "receipt": recorded["receipt"]},
         "authorization": authorization,
         "context": context_policy.suggest("recall"),
     }
@@ -1178,6 +1182,22 @@ def _run_remember(root: Path, args: argparse.Namespace, prefix: list[str]) -> di
             destination,
             state=plan["state"],
         )
+    if proposal is not None:
+        review = contracts.lesson_review_projection(proposal)
+        if review["effectiveReviewState"] in {"rejected", "expired", "superseded"}:
+            next_command = _command_line(root, "lesson", "show", proposal["id"])
+            if review["effectiveReviewState"] in {"rejected", "expired"} and args.receipt is not None:
+                next_command = _command_line(
+                    root, "lesson", "review", proposal["id"], "--decision", "reactivate", "--receipt", args.receipt
+                )
+            return {
+                **route,
+                "state": "lesson-review-required",
+                "executionPerformed": False,
+                "lessonProposal": review,
+                "context": context_policy.suggest("remember"),
+                "next": next_command,
+            }
     if proposal is not None and proposal["state"] in {"completed", "partial", "verification-required"}:
         next_command = (
             _command_line(root, "saga", "next", proposal["sagaId"])
@@ -1283,6 +1303,13 @@ def _run_remember(root: Path, args: argparse.Namespace, prefix: list[str]) -> di
                 prepared["approval"],
             ),
         }
+    review = contracts.lesson_review_projection(proposal)
+    if review["effectiveReviewState"] == "pending":
+        proposal = contracts.review_lesson_proposal(
+            root, proposal["id"], "verify", evidence_receipt_id=args.receipt, reason_code="confirmed-memory-write"
+        )
+    elif review["effectiveReviewState"] != "verified":
+        raise ProjectError(f"LessonProposal is not eligible for memory write: {review['effectiveReviewState']}")
     authorization = _authorization_for_explicit_token(root)
     result = nocturne.call(root, write["tool"], parameters, args.approve, args.timeout)
     succeeded = nocturne.call_succeeded(result)
@@ -1823,9 +1850,23 @@ def _main(argv: list[str] | None = None) -> int:
                 value, heading = contracts.refresh_work_item(root, args.work_item_id), "HelloDev work refreshed"
         elif args.command == "lesson":
             if args.lesson_command == "list":
-                value, heading = {"lessonProposals": contracts.list_lesson_proposals(root)}, "HelloDev lesson proposals"
+                proposals = contracts.list_lesson_review_projections(root)
+                if args.review_state is not None:
+                    proposals = [item for item in proposals if item["effectiveReviewState"] == args.review_state]
+                value, heading = {"lessonProposals": proposals}, "HelloDev lesson proposals"
+            elif args.lesson_command == "show":
+                value = contracts.lesson_review_projection(contracts.get_lesson_proposal(root, args.proposal_id))
+                heading = "HelloDev lesson proposal"
             else:
-                value, heading = contracts.get_lesson_proposal(root, args.proposal_id), "HelloDev lesson proposal"
+                value = contracts.review_lesson_proposal(
+                    root,
+                    args.proposal_id,
+                    args.decision,
+                    evidence_receipt_id=args.receipt,
+                    reason_code=args.reason_code,
+                    replacement_id=args.replacement,
+                )
+                heading = "HelloDev lesson proposal reviewed"
         elif args.command == "gate":
             if args.gate_command == "status":
                 value, heading = gates.status(root), "HelloDev gate projection"

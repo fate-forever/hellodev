@@ -37,6 +37,7 @@ FAST_TESTS = (
     "tests.test_v13_gateway",
     "tests.test_v13_mcp",
     "tests.test_v14_distribution",
+    "tests.test_v143_knowledge_lifecycle",
 )
 
 

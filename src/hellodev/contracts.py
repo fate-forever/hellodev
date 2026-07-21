@@ -10,7 +10,7 @@ from __future__ import annotations
 import hashlib
 import json
 import re
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any
 
@@ -28,6 +28,8 @@ from .state_lock import locked_state
 
 
 STORE_SCHEMA_VERSION = 1
+LESSON_STORE_SCHEMA_VERSION = 2
+LESSON_PENDING_TTL_HOURS = 72
 WORK_ITEM_ID_PATTERN = re.compile(r"^work-[0-9]{4,}$")
 LESSON_PROPOSAL_ID_PATTERN = re.compile(r"^lesson-[0-9]{4,}$")
 EVIDENCE_LINK_ID_PATTERN = re.compile(r"^evidence-[0-9]{4,}$")
@@ -64,6 +66,16 @@ LESSON_TRANSITIONS = {
     "completed": {"completed"},
     "partial": {"partial"},
 }
+LESSON_REVIEW_STATES = {"pending", "verified", "rejected", "expired", "superseded", "persisted"}
+LESSON_REVIEW_REASON_PATTERN = re.compile(r"^[a-z][a-z0-9-]{0,63}$")
+LESSON_REVIEW_TRANSITIONS = {
+    "pending": {"pending", "verified", "rejected", "expired", "superseded"},
+    "verified": {"verified", "rejected", "superseded", "persisted"},
+    "rejected": {"rejected", "pending"},
+    "expired": {"expired", "pending"},
+    "superseded": {"superseded"},
+    "persisted": {"persisted", "superseded"},
+}
 
 WORK_ITEM_FIELDS = {
     "id",
@@ -74,7 +86,7 @@ WORK_ITEM_FIELDS = {
     "createdAt",
     "updatedAt",
 }
-LESSON_PROPOSAL_FIELDS = {
+LESSON_PROPOSAL_FIELDS_V1 = {
     "id",
     "lessonSha256",
     "scope",
@@ -84,6 +96,14 @@ LESSON_PROPOSAL_FIELDS = {
     "state",
     "createdAt",
     "updatedAt",
+}
+LESSON_PROPOSAL_FIELDS = LESSON_PROPOSAL_FIELDS_V1 | {
+    "evidenceReceiptIds",
+    "reviewState",
+    "reviewReasonCode",
+    "reviewedAt",
+    "expiresAt",
+    "supersededBy",
 }
 EVIDENCE_LINK_FIELDS = {
     "id",
@@ -143,6 +163,11 @@ def _validate_timestamp(value: Any, field: str) -> None:
         raise ProjectError(f"{field} must be a UTC timestamp") from error
     if parsed.utcoffset() != timezone.utc.utcoffset(parsed):
         raise ProjectError(f"{field} must be a UTC timestamp")
+
+
+def _timestamp_after(value: str, *, hours: int) -> str:
+    parsed = datetime.fromisoformat(value.replace("Z", "+00:00"))
+    return (parsed + timedelta(hours=hours)).astimezone(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
 
 
 def _validate_digest(value: Any, field: str) -> None:
@@ -384,9 +409,9 @@ def update_work_item(root: str | Path, work_item_id: str | None = None) -> dict[
     return refresh_work_item(root, work_item_id)
 
 
-def _validate_lesson_proposal(value: Any) -> dict[str, Any]:
-    if not isinstance(value, dict) or set(value) != LESSON_PROPOSAL_FIELDS:
-        raise ProjectError("invalid LessonProposal fields")
+def _validate_lesson_proposal_v1(value: Any) -> dict[str, Any]:
+    if not isinstance(value, dict) or set(value) != LESSON_PROPOSAL_FIELDS_V1:
+        raise ProjectError("invalid legacy LessonProposal fields")
     _validate_id(value.get("id"), LESSON_PROPOSAL_ID_PATTERN, "LessonProposal id")
     _validate_digest(value.get("lessonSha256"), "LessonProposal lessonSha256")
     scope = value.get("scope")
@@ -412,25 +437,92 @@ def _validate_lesson_proposal(value: Any) -> dict[str, Any]:
     return value
 
 
+def _migrate_lesson_proposal(value: dict[str, Any]) -> dict[str, Any]:
+    legacy = _validate_lesson_proposal_v1(value)
+    if legacy["state"] == "completed":
+        review_state, reason, reviewed_at = "persisted", "legacy-completed", legacy["updatedAt"]
+    elif legacy["state"] == "partial":
+        review_state, reason, reviewed_at = "rejected", "legacy-partial", legacy["updatedAt"]
+    else:
+        review_state, reason, reviewed_at = "pending", None, None
+    evidence_ids = [] if legacy["evidenceReceiptId"] is None else [legacy["evidenceReceiptId"]]
+    return {
+        **legacy,
+        "evidenceReceiptIds": evidence_ids,
+        "reviewState": review_state,
+        "reviewReasonCode": reason,
+        "reviewedAt": reviewed_at,
+        "expiresAt": _timestamp_after(legacy["createdAt"], hours=LESSON_PENDING_TTL_HOURS),
+        "supersededBy": None,
+    }
+
+
+def _validate_lesson_proposal(value: Any) -> dict[str, Any]:
+    if not isinstance(value, dict) or set(value) != LESSON_PROPOSAL_FIELDS:
+        raise ProjectError("invalid LessonProposal fields")
+    legacy = {field: value[field] for field in LESSON_PROPOSAL_FIELDS_V1}
+    _validate_lesson_proposal_v1(legacy)
+    evidence_ids = value.get("evidenceReceiptIds")
+    if not isinstance(evidence_ids, list) or len(evidence_ids) > 16 or len(evidence_ids) != len(set(evidence_ids)):
+        raise ProjectError("LessonProposal evidenceReceiptIds must be a unique bounded list")
+    for receipt_id in evidence_ids:
+        _validate_id(receipt_id, receipts.RECEIPT_ID_PATTERN, "LessonProposal evidence receipt id")
+    if value["evidenceReceiptId"] is not None and value["evidenceReceiptId"] not in evidence_ids:
+        raise ProjectError("LessonProposal primary evidence must appear in evidenceReceiptIds")
+    review_state = value.get("reviewState")
+    if review_state not in LESSON_REVIEW_STATES:
+        raise ProjectError("invalid LessonProposal review state")
+    reason = value.get("reviewReasonCode")
+    if reason is not None and (not isinstance(reason, str) or LESSON_REVIEW_REASON_PATTERN.fullmatch(reason) is None):
+        raise ProjectError("LessonProposal reviewReasonCode must be one bounded reason code")
+    reviewed_at = value.get("reviewedAt")
+    if reviewed_at is not None:
+        _validate_timestamp(reviewed_at, "LessonProposal reviewedAt")
+        if reviewed_at < value["createdAt"]:
+            raise ProjectError("LessonProposal reviewedAt precedes createdAt")
+    if review_state == "pending" and reviewed_at is not None:
+        raise ProjectError("pending LessonProposal cannot have reviewedAt")
+    if review_state != "pending" and reviewed_at is None:
+        raise ProjectError("reviewed LessonProposal requires reviewedAt")
+    _validate_timestamp(value.get("expiresAt"), "LessonProposal expiresAt")
+    if value["expiresAt"] <= value["createdAt"]:
+        raise ProjectError("LessonProposal expiresAt must follow createdAt")
+    replacement = value.get("supersededBy")
+    if replacement is not None:
+        _validate_id(replacement, LESSON_PROPOSAL_ID_PATTERN, "superseding LessonProposal id")
+        if replacement == value["id"]:
+            raise ProjectError("LessonProposal cannot supersede itself")
+    if review_state == "superseded" and replacement is None:
+        raise ProjectError("superseded LessonProposal requires a replacement")
+    if review_state != "superseded" and replacement is not None:
+        raise ProjectError("only a superseded LessonProposal may name a replacement")
+    return value
+
+
 def _load_lesson_proposals(root: str | Path) -> tuple[Path, Path, dict[str, Any]]:
     resolved, path, store = _read_store(
         root,
         "lesson-proposals.json",
-        {"schemaVersion": STORE_SCHEMA_VERSION, "lessonProposals": []},
+        {"schemaVersion": LESSON_STORE_SCHEMA_VERSION, "lessonProposals": []},
     )
     if set(store) != {"schemaVersion", "lessonProposals"}:
         raise ProjectError("invalid LessonProposal store fields")
-    if type(store.get("schemaVersion")) is not int or store["schemaVersion"] != STORE_SCHEMA_VERSION:
+    version = store.get("schemaVersion")
+    if type(version) is not int or version not in {1, LESSON_STORE_SCHEMA_VERSION}:
         raise ProjectError("unsupported LessonProposal store schema")
     raw = store.get("lessonProposals")
     if not isinstance(raw, list):
         raise ProjectError("invalid LessonProposal store entries")
-    records = [_validate_lesson_proposal(item) for item in raw]
+    records = (
+        [_migrate_lesson_proposal(item) for item in raw]
+        if version == 1
+        else [_validate_lesson_proposal(item) for item in raw]
+    )
     _validate_unique_ids(records, "LessonProposal")
     saga_ids = [record["sagaId"] for record in records if record["sagaId"] is not None]
     if len(saga_ids) != len(set(saga_ids)):
         raise ProjectError("a Saga cannot belong to multiple LessonProposals")
-    return resolved, path, store
+    return resolved, path, {"schemaVersion": LESSON_STORE_SCHEMA_VERSION, "lessonProposals": records}
 
 
 def _lesson_digest(lesson: str) -> str:
@@ -519,14 +611,21 @@ def create_lesson_proposal(
             if proposal_for_saga(resolved, saga_id) is not None:
                 raise ProjectError(f"Saga already has a LessonProposal: {saga_id}")
         now = utc_now()
+        review_state = "persisted" if state == "completed" else "rejected" if state == "partial" else "pending"
         record = {
             "id": _next_id(store["lessonProposals"], "lesson-"),
             "lessonSha256": digest,
             "scope": scope,
             "destination": destination,
             "evidenceReceiptId": evidence_receipt_id,
+            "evidenceReceiptIds": [] if evidence_receipt_id is None else [evidence_receipt_id],
             "sagaId": saga_id,
             "state": state,
+            "reviewState": review_state,
+            "reviewReasonCode": "operation-completed" if state == "completed" else "operation-partial" if state == "partial" else None,
+            "reviewedAt": now if review_state != "pending" else None,
+            "expiresAt": _timestamp_after(now, hours=LESSON_PENDING_TTL_HOURS),
+            "supersededBy": None,
             "createdAt": now,
             "updatedAt": now,
         }
@@ -552,9 +651,12 @@ def update_lesson_proposal(
             raise ProjectError(f"LessonProposal not found: {proposal_id}")
         if evidence_receipt_id is not None:
             _verified_trellis_evidence(resolved, evidence_receipt_id)
-            if record["evidenceReceiptId"] not in {None, evidence_receipt_id}:
-                raise ProjectError("LessonProposal evidence link is immutable")
-            record["evidenceReceiptId"] = evidence_receipt_id
+            if evidence_receipt_id not in record["evidenceReceiptIds"]:
+                if len(record["evidenceReceiptIds"]) >= 16:
+                    raise ProjectError("LessonProposal evidence receipt limit reached")
+                record["evidenceReceiptIds"].append(evidence_receipt_id)
+            if record["evidenceReceiptId"] is None:
+                record["evidenceReceiptId"] = evidence_receipt_id
         if saga_id is not None:
             sagas.status(resolved, saga_id)
             if record["sagaId"] not in {None, saga_id}:
@@ -571,10 +673,140 @@ def update_lesson_proposal(
             if state not in allowed:
                 raise ProjectError(f"LessonProposal cannot transition from {record['state']} to {state}")
             record["state"] = state
-        record["updatedAt"] = utc_now()
+        now = utc_now()
+        if state == "completed":
+            record["reviewState"] = "persisted"
+            record["reviewReasonCode"] = "operation-completed"
+            record["reviewedAt"] = now
+            record["supersededBy"] = None
+        elif state == "partial" and record["reviewState"] not in {"persisted", "superseded"}:
+            record["reviewState"] = "rejected"
+            record["reviewReasonCode"] = "operation-partial"
+            record["reviewedAt"] = now
+            record["supersededBy"] = None
+        record["updatedAt"] = now
         _validate_lesson_proposal(record)
         _write_store(path, store)
         return record
+
+
+def lesson_review_projection(record: dict[str, Any], *, now: str | None = None) -> dict[str, Any]:
+    _validate_lesson_proposal(record)
+    selected_now = now or utc_now()
+    _validate_timestamp(selected_now, "LessonProposal projection time")
+    expired = record["reviewState"] == "pending" and selected_now >= record["expiresAt"]
+    effective = "expired" if expired else record["reviewState"]
+    return {
+        **record,
+        "effectiveReviewState": effective,
+        "expired": expired,
+        "reviewRequired": record["reviewState"] == "pending",
+        "reviewCommand": f"hellodev lesson show {record['id']}",
+    }
+
+
+def list_lesson_review_projections(root: str | Path) -> list[dict[str, Any]]:
+    now = utc_now()
+    return [lesson_review_projection(item, now=now) for item in list_lesson_proposals(root)]
+
+
+def pending_lesson_review(root: str | Path) -> dict[str, Any] | None:
+    candidates = [
+        item
+        for item in list_lesson_review_projections(root)
+        if item["reviewRequired"]
+    ]
+    return min(candidates, key=lambda item: (item["createdAt"], item["id"]), default=None)
+
+
+def review_lesson_proposal(
+    root: str | Path,
+    proposal_id: str,
+    decision: str,
+    *,
+    evidence_receipt_id: str | None = None,
+    reason_code: str | None = None,
+    replacement_id: str | None = None,
+) -> dict[str, Any]:
+    if decision not in {"verify", "reject", "expire", "supersede", "reactivate"}:
+        raise ProjectError("lesson review decision must be verify, reject, expire, supersede, or reactivate")
+    if reason_code is not None and LESSON_REVIEW_REASON_PATTERN.fullmatch(reason_code) is None:
+        raise ProjectError("lesson review reason code must be lowercase kebab-case")
+    with locked_state(root, "lesson-proposals"):
+        resolved, path, store = _load_lesson_proposals(root)
+        _validate_id(proposal_id, LESSON_PROPOSAL_ID_PATTERN, "LessonProposal id")
+        record = next((item for item in store["lessonProposals"] if item["id"] == proposal_id), None)
+        if record is None:
+            raise ProjectError(f"LessonProposal not found: {proposal_id}")
+        now = utc_now()
+        current = "expired" if record["reviewState"] == "pending" and now >= record["expiresAt"] else record["reviewState"]
+        evidence_is_new = evidence_receipt_id is not None and evidence_receipt_id not in record["evidenceReceiptIds"]
+        if evidence_receipt_id is not None:
+            _verified_trellis_evidence(resolved, evidence_receipt_id)
+            if evidence_receipt_id not in record["evidenceReceiptIds"]:
+                if len(record["evidenceReceiptIds"]) >= 16:
+                    raise ProjectError("LessonProposal evidence receipt limit reached")
+                record["evidenceReceiptIds"].append(evidence_receipt_id)
+            if record["evidenceReceiptId"] is None:
+                record["evidenceReceiptId"] = evidence_receipt_id
+        if decision == "reactivate":
+            if current not in {"rejected", "expired"}:
+                raise ProjectError(f"LessonProposal cannot reactivate from {current}")
+            if evidence_receipt_id is None or not evidence_is_new:
+                raise ProjectError("LessonProposal reactivation requires new verified evidence")
+            target = "pending"
+            record["expiresAt"] = _timestamp_after(now, hours=LESSON_PENDING_TTL_HOURS)
+            record["reviewReasonCode"] = None
+            record["reviewedAt"] = None
+            record["supersededBy"] = None
+        elif decision == "verify":
+            if current == "expired":
+                raise ProjectError("expired LessonProposal must be reactivated with new evidence before verification")
+            target = "verified"
+            if record["scope"] == "cross-project" and not record["evidenceReceiptIds"]:
+                raise ProjectError("cross-project LessonProposal verification requires verified Trellis evidence")
+            record["reviewReasonCode"] = reason_code or (
+                "evidence-verified" if record["evidenceReceiptIds"] else "human-project-review"
+            )
+            record["reviewedAt"] = now
+            record["supersededBy"] = None
+        elif decision == "reject":
+            if reason_code is None:
+                raise ProjectError("LessonProposal rejection requires --reason-code")
+            target = "rejected"
+            record["reviewReasonCode"] = reason_code
+            record["reviewedAt"] = now
+            record["supersededBy"] = None
+        elif decision == "expire":
+            if current != "expired":
+                raise ProjectError("LessonProposal is not past its pending TTL")
+            target = "expired"
+            record["reviewReasonCode"] = reason_code or "pending-ttl-expired"
+            record["reviewedAt"] = now
+            record["supersededBy"] = None
+        else:
+            if replacement_id is None:
+                raise ProjectError("LessonProposal supersede requires --replacement")
+            _validate_id(replacement_id, LESSON_PROPOSAL_ID_PATTERN, "replacement LessonProposal id")
+            replacement = next((item for item in store["lessonProposals"] if item["id"] == replacement_id), None)
+            if replacement is None:
+                raise ProjectError(f"LessonProposal not found: {replacement_id}")
+            if replacement["scope"] != record["scope"] or replacement["destination"] != record["destination"]:
+                raise ProjectError("superseding LessonProposal must use the same scope and destination")
+            if replacement["reviewState"] in {"rejected", "expired", "superseded"}:
+                raise ProjectError("superseding LessonProposal is not actionable")
+            target = "superseded"
+            record["reviewReasonCode"] = reason_code or "newer-candidate"
+            record["reviewedAt"] = now
+            record["supersededBy"] = replacement_id
+        allowed = LESSON_REVIEW_TRANSITIONS[current]
+        if target not in allowed:
+            raise ProjectError(f"LessonProposal review cannot transition from {current} to {target}")
+        record["reviewState"] = target
+        record["updatedAt"] = now
+        _validate_lesson_proposal(record)
+        _write_store(path, store)
+        return lesson_review_projection(record, now=now)
 
 
 def validate_lesson_digest(root: str | Path, proposal_id: str, lesson: str) -> bool:

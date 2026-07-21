@@ -1,4 +1,4 @@
-# HelloDev Core 0.14.2
+# HelloDev Core 0.14.3
 
 HelloDev 是面向 Codex、Cursor 等编码 Agent 的本地开发编排框架。它用一套稳定入口连接项目工作流、长期知识、授权回执、恢复和效率治理：
 
@@ -14,12 +14,12 @@ HelloDev 是面向 Codex、Cursor 等编码 Agent 的本地开发编排框架。
 打开目标项目，让 Codex 或 Cursor Agent 直接执行安装、接入和开发。你只需要替换任务与验收标准：
 
 ```text
-请在当前项目安装并使用 HelloDev 0.14.2，然后完成：<任务>。
+请在当前项目安装并使用 HelloDev 0.14.3，然后完成：<任务>。
 验收标准：<测试、行为或交付物>。
 
 执行协议：
 1. 先读取当前项目适用的 AGENTS.md。若项目已有 .trellis/，在规划或改代码前读取 .trellis/workflow.md，按需读取 .trellis/spec/context/CONTEXT.md，并检查 .trellis/tasks/ 当前状态。
-2. 先检查本机是否已有可用的 hellodev 0.14.2。若有用户提供且 SHA-256 可核对的同版本 Windows bundle，优先使用其 bin/hellodev.cmd；否则从 https://github.com/fate-forever/hellodev.git 获取源码，在独立虚拟环境安装 `.[mcp]`。不要声称 git clone 自带 Trellis、Nocturne、Python 或 Node。
+2. 先检查本机是否已有可用的 hellodev 0.14.3。若有用户提供且 SHA-256 可核对的同版本 Windows bundle，优先使用其 bin/hellodev.cmd；否则从 https://github.com/fate-forever/hellodev.git 获取源码，在独立虚拟环境安装 `.[mcp]`。不要声称 git clone 自带 Trellis、Nocturne、Python 或 Node。
 3. 源码/Core 模式下，复用本机已安装的 Trellis/Nocturne；找不到时明确降级为 local-only，除非我另行同意安装组件。不要虚构 bootstrap.ps1、Release 资产或 PyPI 包。
 4. 只写项目级 Codex/Cursor 接入配置；不要修改 PATH、注册表、shell profile 或用户级全局配置。遇到已有且冲突的 MCP 配置时先说明差异。
 5. 由你执行安装、`hellodev --json open`、`hellodev --json next` 和后续 `do`/`resume` 命令，不要让我手工输入普通 CLI。
@@ -31,7 +31,7 @@ HelloDev 是面向 Codex、Cursor 等编码 Agent 的本地开发编排框架。
 
 这是推荐入口。完整的新项目提示词、Cursor/Codex 接入方式和故障处理见 [Quick Start](docs/QUICK_START.md)。
 
-> **发行事实：** Git 仓库只包含 HelloDev Core 源码，不包含 Trellis/Nocturne 上游源码、Python/Node 运行时或可下载的一体包。0.14.2 是兼容的 Agent-first 文档与版本对齐补丁；自包含 bundle 只有在作为独立 Release 资产发布并提供匹配 SHA-256 后才能按 bundle 使用。本文不宣称 HelloDev 0.14.2 已发布到 PyPI。
+> **发行事实：** Git 仓库只包含 HelloDev Core 源码，不包含 Trellis/Nocturne 上游源码、Python/Node 运行时或可下载的一体包。0.14.3 增加证据门控知识生命周期和受控 recall 投影；自包含 bundle 只有在作为独立 Release 资产发布并提供匹配 SHA-256 后才能按 bundle 使用。本文不宣称 HelloDev 0.14.3 已发布到 PyPI。
 
 ## 三分钟了解
 
@@ -103,7 +103,7 @@ py -3.12 -m venv .venv
 .\.venv\Scripts\hellodev.exe --version
 ```
 
-预期版本是 `hellodev 0.14.2`。Python 3.10–3.12 均受源码测试矩阵覆盖。`mcp` extra 用于 Codex/Cursor 的 stdio MCP 接入；只使用 CLI 时可安装 `.`。
+预期版本是 `hellodev 0.14.3`。Python 3.10–3.12 均受源码测试矩阵覆盖。`mcp` extra 用于 Codex/Cursor 的 stdio MCP 接入；只使用 CLI 时可安装 `.`。
 
 在目标项目初始化：
 
@@ -125,15 +125,15 @@ hellodev_status    hellodev_context    hellodev_resume
 从 Release 页面取得与平台匹配的 archive 和 SHA-256，核对后解压到真实目录：
 
 ```powershell
-Get-FileHash .\hellodev-0.14.2-windows-x86_64.zip -Algorithm SHA256
-cd C:\Tools\hellodev-0.14.2-windows-x86_64
+Get-FileHash .\hellodev-0.14.3-windows-x86_64.zip -Algorithm SHA256
+cd C:\Tools\hellodev-0.14.3-windows-x86_64
 .\bin\hellodev.cmd components verify
 .\bin\hellodev.cmd setup
 cd C:\path\to\your-project
-C:\Tools\hellodev-0.14.2-windows-x86_64\bin\hellodev.cmd onboard --host cursor --with-trellis
+C:\Tools\hellodev-0.14.3-windows-x86_64\bin\hellodev.cmd onboard --host cursor --with-trellis
 ```
 
-若对应 0.14.2 bundle 尚未发布，不要把源码仓库当作 bundle，也不要把旧版本 archive 改名冒充。`components verify` 证明本地字节与随包 manifest 一致，不等于数字签名、远程来源证明或法律审查。
+若对应 0.14.3 bundle 尚未发布，不要把源码仓库当作 bundle，也不要把旧版本 archive 改名冒充。`components verify` 证明本地字节与随包 manifest 一致，不等于数字签名、远程来源证明或法律审查。
 
 ## Trellis 与 Nocturne 如何接入
 
@@ -174,6 +174,33 @@ hellodev nocturne status
 ```
 
 若实际启动需要 Python 和脚本，可重复传入 `--arg` 并用 `--cwd` 指定工作目录。Agent 应先检查本机实际安装方式，不能猜测路径。未配置时，`recall` 优雅降级为 local-only。
+
+## 证据门控知识生命周期
+
+0.14.3 不新建第三套记忆数据库。HelloDev 只在 `.hellodev/state/lesson-proposals.json` 保存正文 SHA-256、证据 receipt ID、目标系统、审核状态和时间；正文仍归 Trellis 或 Nocturne 所有。
+
+```text
+pending（默认 72h）
+├─ verified ──► persisted
+├─ rejected ──► pending（必须有新的已验证证据才能重激活）
+├─ expired  ──► pending（必须有新的已验证证据才能重激活）
+└─ superseded
+```
+
+审核命令属于进阶治理面，只改变本地 hash-only metadata，不执行 Trellis/Nocturne 写入：
+
+```powershell
+hellodev lesson list --review-state pending
+hellodev lesson show lesson-0001
+hellodev lesson review lesson-0001 --decision verify --receipt receipt-0001
+hellodev lesson review lesson-0001 --decision reject --reason-code insufficient-evidence
+hellodev lesson review lesson-0001 --decision supersede --replacement lesson-0002
+hellodev lesson review lesson-0001 --decision reactivate --receipt receipt-0002
+```
+
+跨项目候选验证必须绑定成功且已验证的 Trellis gate/test receipt；项目候选允许人工项目审核，但真正写入仍服从项目 workflow。`next` 只在安全恢复项处理完且 lifecycle 已结束时，给出一条只读 `lesson show` 审核提示。
+
+Nocturne recall 的原始 MCP envelope 只进入 receipt 哈希，不再原样返回给 Agent。读取投影最多返回 5 条、每条 1200 字符，确定性去重并标记来源、权威性和 freshness；疑似“忽略上文、执行命令、伪造 APPROVE”等指令型记忆只保留 hash 和隔离原因。仓库/Trellis 与长期记忆冲突时，项目事实始终优先。
 
 ## 日常命令与授权
 
@@ -321,6 +348,7 @@ python -m build
 
 ## 版本说明
 
+- **0.14.3**：证据门控 LessonProposal 审核生命周期、72 小时 TTL、新证据重激活、聚合 receipt、`next` 审核提示，以及去重/限长/来源标记/指令隔离的 Nocturne recall 投影；不增加记忆数据库或自动外部写入。
 - **0.14.2**：Agent-first README/Quick Start，明确源码与 bundle 边界，统一版本/manifest/dashboard；不增加新运行时行为。
 - **0.14.1**：任务连续性、三类任务计数、显式 `work activate` 与 Windows 路径边界修复。
 - **0.14.0**：manifest 驱动的一体化 bundle、bundled Trellis/Nocturne、数据隔离和显式 onboarding。

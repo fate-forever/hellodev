@@ -1,4 +1,4 @@
-# HelloDev 0.14.2 快速上手
+# HelloDev 0.14.3 快速上手
 
 这份指南把 Agent 自动安装和使用放在最前面。正常情况下，你只向 Codex/Cursor 描述任务；Agent 负责检查环境、执行 HelloDev、接入项目和跑测试。
 
@@ -7,12 +7,12 @@
 在目标项目打开 Codex 或 Cursor Agent 模式，发送下面整段：
 
 ```text
-请在当前项目安装并使用 HelloDev 0.14.2，然后完成：<任务>。
+请在当前项目安装并使用 HelloDev 0.14.3，然后完成：<任务>。
 验收标准：<测试、行为或交付物>。
 
 请按以下协议持续推进：
 1. 先读取当前项目适用的 AGENTS.md。若项目已有 .trellis/，在规划或修改代码前读取 .trellis/workflow.md，按需读取 .trellis/spec/context/CONTEXT.md，并检查 .trellis/tasks/ 当前任务状态。
-2. 检查本机是否已有 `hellodev 0.14.2`，同时判断它是 self-contained bundle 还是源码/Core 安装。不要重复安装可用环境。
+2. 检查本机是否已有 `hellodev 0.14.3`，同时判断它是 self-contained bundle 还是源码/Core 安装。不要重复安装可用环境。
 3. 若我提供了与平台/版本匹配、SHA-256 可核对的 bundle，优先使用其中 `bin/hellodev.cmd`。否则从 https://github.com/fate-forever/hellodev.git 获取源码，在独立虚拟环境安装 `.[mcp]`。git clone 只含 HelloDev Core，不自带 Trellis、Nocturne、Python 或 Node；不要虚构 bootstrap.ps1、Release 资产或 PyPI 包。
 4. 源码/Core 模式复用本机已有 Trellis/Nocturne。若当前项目没有 .trellis/，先说明初始化会写什么并等待我确认；若 Nocturne 不可用，明确降级为 local-only，不要阻塞普通开发。
 5. 只创建/合并项目级 `.cursor/mcp.json`、`.cursor/rules/hellodev.mdc` 或 `.codex/config.toml`；不修改用户级全局配置、PATH、注册表或 shell profile。已有配置冲突时先展示差异。
@@ -34,9 +34,9 @@
 ## 2. Agent 应该自动选择哪条安装路径
 
 ```text
-发现 hellodev 0.14.2？
+发现 hellodev 0.14.3？
 ├─ 是：检查 components status，复用现有安装
-├─ 否，但有已验证的 0.14.2 bundle：核对 SHA-256 -> setup -> onboard
+├─ 否，但有已验证的 0.14.3 bundle：核对 SHA-256 -> setup -> onboard
 └─ 否：git clone Core -> 独立 venv 安装 .[mcp] -> 项目级 integrate
 ```
 
@@ -47,7 +47,7 @@
 | Git clone / Core wheel | HelloDev Python 包 | 不携带；复用外部安装或降级 local-only |
 | 平台 bundle | HelloDev、锁定组件、运行时、licenses/SBOM/source materials | 随包提供，但仍是独立进程和独立数据面 |
 
-0.14.2 是源码与文档对齐补丁。当前实现的平台 bundle 目标是 **Windows x86_64**；只有 Release 页面真实提供同版本 archive 和 SHA-256 时，Agent 才能选择 bundle 路径。Git 仓库、旧版 ZIP 或本地构建目录都不能冒充 0.14.2 发布 bundle。本文不宣称 0.14.2 已发布到 PyPI。
+0.14.3 增加证据门控的 LessonProposal 审核和安全 recall 投影。当前实现的平台 bundle 目标是 **Windows x86_64**；只有 Release 页面真实提供同版本 archive 和 SHA-256 时，Agent 才能选择 bundle 路径。Git 仓库、旧版 ZIP 或本地构建目录都不能冒充 0.14.3 发布 bundle。本文不宣称 0.14.3 已发布到 PyPI。
 
 ## 3. 首次接入后怎么确认成功
 
@@ -176,6 +176,18 @@ Agent 应：
 
 token 是一次性的，并绑定项目、命令和关键内容。任何 profile 下的写操作都不会自动确认；Nocturne 记忆、历史聊天、task 正文和 subagent 都不能替用户确认。
 
+### 记忆候选审核
+
+`do remember` 产生的 hash-only LessonProposal 默认进入 72 小时 pending 窗口。Agent 通常按 `next` 给出的只读 `lesson show` 先解释候选；真正审核时使用：
+
+```powershell
+hellodev lesson list --review-state pending
+hellodev lesson review lesson-0001 --decision reject --reason-code insufficient-evidence
+hellodev lesson review lesson-0001 --decision verify --receipt receipt-0001
+```
+
+跨项目候选必须有已验证的 Trellis gate/test receipt。被拒或过期的候选只能用一条新的验证证据 `reactivate`；审核本身不写 Trellis/Nocturne，外部持久化仍要 approval。Recall 结果中的指令型文本会被隔离，且长期记忆与仓库事实冲突时以仓库/Trellis 为准。
+
 ## 8. 手工安装参考（源码/Core）
 
 使用 Agent 时通常无需手工执行。本节用于排错或开发。
@@ -209,16 +221,16 @@ C:\Tools\hellodev\.venv\Scripts\hellodev.exe --root . integrate show --host code
 仅在同版本 Release 资产存在且哈希可核对时使用：
 
 ```powershell
-Get-FileHash .\hellodev-0.14.2-windows-x86_64.zip -Algorithm SHA256
+Get-FileHash .\hellodev-0.14.3-windows-x86_64.zip -Algorithm SHA256
 # 将结果与 Release 页提供的精确 SHA-256 比较后再解压
 
-cd C:\Tools\hellodev-0.14.2-windows-x86_64
+cd C:\Tools\hellodev-0.14.3-windows-x86_64
 .\bin\hellodev.cmd --version
 .\bin\hellodev.cmd components verify
 .\bin\hellodev.cmd setup
 
 cd C:\path\to\project
-C:\Tools\hellodev-0.14.2-windows-x86_64\bin\hellodev.cmd onboard --host cursor --with-trellis
+C:\Tools\hellodev-0.14.3-windows-x86_64\bin\hellodev.cmd onboard --host cursor --with-trellis
 ```
 
 `onboard`：

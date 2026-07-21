@@ -278,8 +278,8 @@ async function load() {
   if (continuity.lessonProposals.length) {
     continuity.lessonProposals.forEach((proposal) => $("lessons").append(row(
       `${proposal.id} · ${proposal.destination}`,
-      `scope=${proposal.scope} · sha256=${compactHash(proposal.lessonSha256)} · saga=${proposal.sagaId ?? "none"}`,
-      proposal.state,
+      `scope=${proposal.scope} · evidence=${proposal.evidenceReceiptCount} · expires=${proposal.expiresAt} · sha256=${compactHash(proposal.lessonSha256)}`,
+      `${proposal.state} / review=${proposal.effectiveReviewState}`,
     )));
   } else {
     $("lessons").append(empty("没有 hash-only LessonProposal"));

@@ -276,6 +276,8 @@ class F2CliTests(unittest.TestCase):
             )
             self.assertEqual(verified["phase"], "completed")
             self.assertEqual(verified["lessonProposal"]["state"], "completed")
+            self.assertEqual(verified["lessonProposal"]["reviewState"], "persisted")
+            self.assertEqual(verified["lessonProposal"]["evidenceReceiptIds"], [gate["id"]])
             persisted = "\n".join(
                 path.read_text(encoding="utf-8", errors="replace")
                 for path in ProjectPaths(root).state_dir.rglob("*")

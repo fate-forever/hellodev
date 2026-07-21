@@ -178,6 +178,9 @@ class F1CliTests(unittest.TestCase):
             self.assertEqual(recalled["state"], "memory-result")
             self.assertEqual(recalled["authorization"]["authorizationMode"], "profile-auto")
             self.assertEqual(recalled["memory"]["sourceLabel"], "Long-term memory")
+            self.assertFalse(recalled["memory"]["rawResultExposed"])
+            self.assertNotIn("result", recalled["memory"])
+            self.assertIn("receipt", recalled["memory"])
 
             gate = receipts.record(root, "trellis", "quality-gate", "read", {}, {}, True, kind="gate")
             receipts.record_verification(root, gate["id"], "targeted tests passed")

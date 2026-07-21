@@ -583,16 +583,13 @@ def _run_recall(root: Path, request: _DoRequest, prefix: list[str]) -> dict[str,
         succeeded,
         authorization=authorization,
     )
+    memory_projection = knowledge_flows.project_memory_result(result, plan["local"], request.limit)
     return {
         **route,
         "state": "memory-result" if succeeded else "memory-error",
         "executionPerformed": True,
         "local": plan["local"],
-        "memory": {
-            "sourceLabel": "Long-term memory",
-            "authority": "non-authoritative advisory context",
-            **recorded,
-        },
+        "memory": {**memory_projection, "receipt": recorded["receipt"]},
         "authorization": authorization,
         "context": context_policy.suggest("recall"),
     }
@@ -631,6 +628,22 @@ def _run_remember(root: Path, request: _DoRequest, prefix: list[str]) -> dict[st
             destination,
             state=plan["state"],
         )
+    if proposal is not None:
+        review = contracts.lesson_review_projection(proposal)
+        if review["effectiveReviewState"] in {"rejected", "expired", "superseded"}:
+            next_command = command_line(root, "lesson", "show", proposal["id"])
+            if review["effectiveReviewState"] in {"rejected", "expired"} and request.receipt is not None:
+                next_command = command_line(
+                    root, "lesson", "review", proposal["id"], "--decision", "reactivate", "--receipt", request.receipt
+                )
+            return {
+                **route,
+                "state": "lesson-review-required",
+                "executionPerformed": False,
+                "lessonProposal": review,
+                "context": context_policy.suggest("remember"),
+                "next": next_command,
+            }
     if proposal is not None and proposal["state"] in {"completed", "partial", "verification-required"}:
         next_command = (
             command_line(root, "saga", "next", proposal["sagaId"])
@@ -736,6 +749,13 @@ def _run_remember(root: Path, request: _DoRequest, prefix: list[str]) -> dict[st
                 prepared["approval"],
             ),
         }
+    review = contracts.lesson_review_projection(proposal)
+    if review["effectiveReviewState"] == "pending":
+        proposal = contracts.review_lesson_proposal(
+            root, proposal["id"], "verify", evidence_receipt_id=request.receipt, reason_code="confirmed-memory-write"
+        )
+    elif review["effectiveReviewState"] != "verified":
+        raise ProjectError(f"LessonProposal is not eligible for memory write: {review['effectiveReviewState']}")
     authorization = _explicit_authorization(root)
     result = nocturne.call(root, write["tool"], parameters, request.approve, request.timeout)
     succeeded = nocturne.call_succeeded(result)
