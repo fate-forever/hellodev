@@ -1,16 +1,16 @@
 """Loopback-only, read-only HelloDev Control Center."""
 from __future__ import annotations
-import contextlib,hmac,json,mimetypes,os,secrets,subprocess,sys,time,urllib.parse,urllib.request
+import contextlib,hashlib,hmac,json,mimetypes,os,secrets,subprocess,sys,threading,time,urllib.parse,urllib.request
 from http import HTTPStatus
 from http.cookies import SimpleCookie
 from http.server import BaseHTTPRequestHandler,ThreadingHTTPServer
 from pathlib import Path
-from . import capabilities,checkpoints,contracts,drift,efficiency_cycles,gates,host_bridge,lifecycle,optimization,policy_evolution,receipts,resume,sagas,transactions
+from . import __version__,capabilities,checkpoints,components,context_runtime,contracts,drift,efficiency_cycles,gates,host_bridge,integrations,lifecycle,optimization,policy_evolution,receipts,repository_tools,resume,sagas,transactions
 from .governance import usage_status
 from .command_rendering import rewrite_commands
 from .project import ProjectError,ProjectPaths,list_tasks,load_config,utc_now,write_json
 
-HOST="127.0.0.1"; DEFAULT_PORT=8242; ASSETS=Path(__file__).with_name("dashboard_assets"); COOKIE="hellodev_control"; MAX_ASSET=512*1024
+HOST="127.0.0.1"; DEFAULT_PORT=8242; ASSETS=Path(__file__).with_name("dashboard_assets"); COOKIE="hellodev_control"; MAX_ASSET=512*1024; SNAPSHOT_TTL=.75
 def _paths(root:Path):
  d=ProjectPaths(root).state_dir/"dashboard";return d,d/"state.json",d/"control.token"
 def _read_state(root:Path):
@@ -77,7 +77,7 @@ def _continuity_snapshot(root:Path):
    "resume":{"lifecyclePhase":None,"capabilityState":"invalid","next":None},
    "currentWorkItem":None,
    "gate":{"state":"invalid","finishPolicy":"unavailable","capabilityState":"invalid","validEvidenceCount":0,"staleEvidenceCount":0,"lifecycleConsistency":None,"trellisMutationPerformed":False},
-   "incompleteSagas":[],"lessonProposals":[],
+   "incompleteSagas":[],"lessonProposals":[],"recoveryCenter":[],
    "auditSummary":{"workItems":0,"lessonProposals":0,"evidenceLinks":0,"incompleteSagas":0},
   }
  incomplete=[]
@@ -85,6 +85,7 @@ def _continuity_snapshot(root:Path):
   if state["phase"] in resume.INCOMPLETE_SAGA_PHASES:
    decision=sagas.next_step(root,state["id"])
    incomplete.append({"id":state["id"],"phase":state["phase"],"updatedAt":state.get("updatedAt"),"nextCommand":decision["command"],"reasonCode":decision["reasonCode"],"requiresInput":decision["requiresInput"]})
+   if len(incomplete)>=20:break
  lessons=[]
  for proposal in sorted(contracts.list_lesson_review_projections(root),key=lambda item:(item["updatedAt"],item["id"]),reverse=True):
   lessons.append({
@@ -94,6 +95,34 @@ def _continuity_snapshot(root:Path):
    "reviewReasonCode":proposal["reviewReasonCode"],"expiresAt":proposal["expiresAt"],"supersededBy":proposal["supersededBy"],
    "reviewRequired":proposal["reviewRequired"],"reviewCommand":proposal["reviewCommand"],"updatedAt":proposal["updatedAt"],
   })
+  if len(lessons)>=50:break
+ recovery=[]
+ def recover(kind,title,state,command,priority,detail):
+  recovery.append({"kind":kind,"title":title,"state":state,"command":command,"priority":priority,"detail":detail})
+ pending_transaction=projection.get("pendingTransaction")
+ if pending_transaction:
+  recover("transaction",pending_transaction["id"],pending_transaction["state"],pending_transaction["recoveryCommand"],1,"Authorized WAL recovery; no new approval is required.")
+ pending_envelope=projection.get("pendingHostEnvelope")
+ if pending_envelope:
+  recover("host-envelope",pending_envelope["id"],"pending",pending_envelope["recoveryCommand"],2,"A HostEnvelope has no completion receipt.")
+ for item in incomplete:
+  recover("saga",item["id"],item["phase"],item["nextCommand"],3,item["reasonCode"])
+ work=projection.get("currentWorkItem")
+ if work and not work["fingerprintCurrent"]:
+  recover("work-item",work["id"],"stale",f"hellodev work refresh {work['id']}",4,"The pointer predates the current project fingerprint.")
+ if projection.get("lifecyclePhase")=="checking" and gate.get("state") not in {"ready","passed","satisfied"}:
+  decision=projection["next"]
+  recover("gate","finish gate",gate["state"],decision["command"],5,decision["reasonCode"])
+ active_canary=projection.get("activeCanary")
+ if active_canary and (active_canary.get("expired") or active_canary.get("exhausted")):
+  recover("canary",active_canary["proposalId"],"evaluation-required",f"hellodev policy evaluate --proposal {active_canary['proposalId']}",6,"The bounded canary window is complete.")
+ pending_lesson=projection.get("pendingLessonReview")
+ if pending_lesson:
+  recover("lesson",pending_lesson["id"],pending_lesson["effectiveReviewState"],f"hellodev lesson show {pending_lesson['id']}",7,"Review metadata and evidence before any persistence decision.")
+ efficiency=projection.get("next",{}).get("efficiency")
+ if efficiency and isinstance(efficiency.get("command"),str):
+  recover("efficiency","efficiency hint","advisory",efficiency["command"],8,efficiency.get("reasonCode","efficiency-advice"))
+ recovery.sort(key=lambda item:(item["priority"],item["title"]))
  return {
   "schemaVersion":1,
   "readOnly":True,
@@ -103,8 +132,35 @@ def _continuity_snapshot(root:Path):
   "gate":{"state":gate["state"],"finishPolicy":gate["finishPolicy"],"capabilityState":gate["capabilityState"],"validEvidenceCount":len(gate["validEvidence"]),"staleEvidenceCount":gate["staleEvidenceCount"],"lifecycleConsistency":gate["lifecycleConsistency"],"trellisMutationPerformed":False},
   "incompleteSagas":incomplete,
   "lessonProposals":lessons,
+  "recoveryCenter":recovery,
   "auditSummary":{"workItems":len(contracts.list_work_items(root)),"lessonProposals":len(lessons),"evidenceLinks":len(contracts.list_evidence_links(root)),"incompleteSagas":len(incomplete)},
  }
+
+def _recall_snapshot(root:Path):
+ history=[]
+ for item in reversed(receipts.list_receipts(root)):
+  if item.get("operation")!="search_memory":continue
+  history.append({"receiptId":item["id"],"outcome":item["outcome"],"recordedAt":item["recordedAt"],"risk":item["risk"],"acceptedCount":None,"quarantinedCount":None,"deduplicated":True,"detailState":"not-persisted"})
+  if len(history)>=10:break
+ return {"state":"observed" if history else "no-history","history":history,"historyLimit":10,"source":"Long-term memory","authority":"advisory-only","freshness":"unavailable","instructionAuthority":"none","conflictPolicy":"repository-and-trellis-facts-win","quarantinePolicy":"instruction-like-memory-quarantined","rawResultExposed":False,"resultDetailsPersisted":False,"readOnly":True}
+
+def _diagnostics_snapshot(root:Path,caps:dict,adapters:dict,repository_tool_state:dict):
+ try:distribution=components.availability()
+ except (components.ComponentError,ProjectError,OSError) as error:distribution={"state":"invalid","reason":str(error)}
+ host_checks={}
+ for host in ("codex","cursor"):
+  try:value=integrations.check(root,host);host_checks[host]={"state":value["state"],"checks":[{"name":item["name"],"state":item["state"]} for item in value["checks"]]}
+  except (components.ComponentError,ProjectError,OSError,ImportError) as error:host_checks[host]={"state":"invalid","checks":[],"reason":str(error)}
+ fixes=[]
+ if caps.get("state")!="fresh":fixes.append({"label":"Refresh capabilities","command":"hellodev capabilities refresh"})
+ if adapters["trellis"]["state"] not in {"ready","available"}:fixes.append({"label":"Inspect Trellis","command":"hellodev doctor --fix-hints"})
+ if adapters["nocturne"]["state"] not in {"ready","available"}:fixes.append({"label":"Inspect Nocturne","command":"hellodev doctor --fix-hints"})
+ for host,value in host_checks.items():
+  if value["state"]!="ready":fixes.append({"label":f"Check {host.title()} MCP","command":f"hellodev integrate check --host {host}"})
+ unique=[];seen=set()
+ for fix in fixes:
+  if fix["command"] not in seen:seen.add(fix["command"]);unique.append(fix)
+ return {"core":{"version":__version__,"mode":"bundle" if distribution.get("state") in {"ready","available"} else "core","distributionState":distribution.get("state","unknown")},"components":{"trellis":adapters["trellis"],"nocturne":adapters["nocturne"]},"repositoryTools":repository_tool_state,"hosts":host_checks,"fixes":unique[:6],"readOnly":True}
 def _usage_snapshot(root:Path):
  value=usage_status(root);latest=value.get("preferredDetails")
  basis=("unavailable" if latest is None else
@@ -271,7 +327,7 @@ def _advanced_snapshot(root:Path):
   "adapterCallCount":0,
   "modelCallCount":0,
  }
-def snapshot(root:Path,instance:str,started:str):
+def _legacy_snapshot(root:Path,instance:str,started:str):
  caps=capabilities.status(root);ad=caps.get("capabilities") or {};life=lifecycle.status(root);usage=_usage_snapshot(root);paths=ProjectPaths(root);continuity=_continuity_snapshot(root);optimize=_optimization_snapshot(root);advanced=_advanced_snapshot(root)
  brief_items=[]
  for p in sorted(paths.briefs_dir.glob("*.json")):
@@ -280,9 +336,37 @@ def snapshot(root:Path,instance:str,started:str):
  def adapt(name):
   v=ad.get(name,{"state":"cache-missing"});return {"state":v.get("state","unknown"),"detail":v.get("reason",v.get("execution","ready"))}
  return rewrite_commands({"schemaVersion":9,"generatedAt":utc_now(),"instanceId":instance,"startedAt":started,"readOnly":True,"lifecycle":{"phase":life["phase"],"cycleId":life["cycleId"],"completedCycleCount":len(life["completedCycles"])},"tasks":{"localCount":len(list_tasks(root)),"trellisActiveCount":len(contracts.list_trellis_tasks(root)),"linkedWorkItemCount":len(contracts.list_work_items(root))},"capabilities":{"state":caps["state"]},"adapters":{"trellis":adapt("trellis"),"nocturne":adapt("nocturne")},"briefs":brief_items,"usage":usage,"efficiencyCycle":_efficiency_cycle_snapshot(root),"continuity":continuity,"optimization":optimize,"advanced":advanced,"audit":{"receipts":len(receipts.list_receipts(root)),"sagas":saga_count,"optimizationTraces":optimize["traceCount"],"reflectionReports":optimize["reportCount"],"evolutionProposals":optimize["proposalCount"],"hostCompletions":advanced["host"]["completionCount"],"pendingTransactions":advanced["transactions"]["pendingCount"],"pendingHostEnvelopes":advanced["host"]["pendingEnvelopeCount"],"policyEvents":advanced["policy"]["eventCount"],"driftFindings":advanced["drift"]["findingCount"],**continuity["auditSummary"]},"actions":[{"label":"刷新能力","command":"hellodev capabilities refresh"},{"label":"构建 L0 brief","command":"hellodev brief build --level L0"},{"label":"进入计划阶段","command":"hellodev lifecycle plan"},{"label":"进入工作阶段","command":"hellodev lifecycle work"}]})
+def snapshot(root:Path,instance:str,started:str):
+ value=_legacy_snapshot(root,instance,started)
+ value["schemaVersion"]=12
+ cached=capabilities.status(root).get("capabilities") or {}
+ value["repositoryTools"]=cached.get("repositoryTools") if isinstance(cached.get("repositoryTools"),dict) else repository_tools.discover()
+ value["contextPlane"]=context_runtime.status(root)
+ continuity=value["continuity"];next_step=continuity["resume"].get("next") or {"command":"hellodev doctor --fix-hints","reason":"Project state is invalid; inspect deterministic fix hints.","reasonCode":"project-state-invalid","suggestedLevel":"L0"}
+ value["briefs"]=value["briefs"][-20:]
+ value["now"]={
+  "phase":value["lifecycle"]["phase"],"cycleId":value["lifecycle"]["cycleId"],
+  "workItem":continuity["currentWorkItem"],
+  "blocker":continuity["recoveryCenter"][0] if continuity["recoveryCenter"] else None,
+  "next":{"command":next_step["command"],"reason":next_step["reason"],"reasonCode":next_step["reasonCode"],"suggestedLevel":next_step["suggestedLevel"]},
+  "health":{"capabilities":value["capabilities"]["state"],"trellis":value["adapters"]["trellis"]["state"],"nocturne":value["adapters"]["nocturne"]["state"],"repositoryTools":value["repositoryTools"].get("state","unknown"),"contextPlane":value["contextPlane"].get("state","unknown")},
+ }
+ value["recallInspector"]=_recall_snapshot(root)
+ value["diagnostics"]=_diagnostics_snapshot(root,value["capabilities"],value["adapters"],value["repositoryTools"])
+ return rewrite_commands(value)
+
 class Server(ThreadingHTTPServer):
  daemon_threads=True
- def __init__(self,address,root,token,control,instance,started):self.root=root;self.token=token;self.control=control;self.instance=instance;self.started=started;super().__init__(address,Handler)
+ def __init__(self,address,root,token,control,instance,started):self.root=root;self.token=token;self.control=control;self.instance=instance;self.started=started;self.snapshot_cache=None;self.snapshot_lock=threading.Lock();super().__init__(address,Handler)
+ def status_payload(self):
+  now=time.monotonic()
+  with self.snapshot_lock:
+   if self.snapshot_cache is None or now-self.snapshot_cache[0]>SNAPSHOT_TTL:
+    value=snapshot(self.root,self.instance,self.started);semantic={key:item for key,item in value.items() if key!="generatedAt"};digest=hashlib.sha256(json.dumps(semantic,ensure_ascii=False,separators=(",",":"),sort_keys=True).encode()).hexdigest()
+    if self.snapshot_cache is not None and self.snapshot_cache[3]==digest:self.snapshot_cache=(now,self.snapshot_cache[1],self.snapshot_cache[2],digest)
+    else:
+     body=json.dumps(value,ensure_ascii=False,separators=(",",":")).encode();etag='"'+digest+'"';self.snapshot_cache=(now,body,etag,digest)
+   return self.snapshot_cache[1],self.snapshot_cache[2]
 class Handler(BaseHTTPRequestHandler):
  server:Server
  def log_message(self,*_):pass
@@ -302,12 +386,17 @@ class Handler(BaseHTTPRequestHandler):
   if query.get("token") and hmac.compare_digest(query["token"][0],self.server.token):
    self._headers(303,"text/plain",0,{"Location":"/","Set-Cookie":f"{COOKIE}={self.server.token}; Path=/; HttpOnly; SameSite=Strict"});return
   if not self._auth():return self._send(401,{"status":"unauthorized"})
-  if parsed.path=="/api/status":return self._send(200,snapshot(self.server.root,self.server.instance,self.server.started))
+  if parsed.path=="/api/status":
+   body,etag=self.server.status_payload()
+   if hmac.compare_digest(self.headers.get("If-None-Match",""),etag):return self._headers(304,"application/json; charset=utf-8",0,{"ETag":etag,"Cache-Control":"private, no-cache"})
+   self._headers(200,"application/json; charset=utf-8",len(body),{"ETag":etag,"Cache-Control":"private, no-cache"});self.wfile.write(body);return
   names={"/":"index.html","/index.html":"index.html","/styles.css":"styles.css","/app.js":"app.js"};name=names.get(parsed.path)
   if not name:return self._send(404,{"status":"not-found"})
   p=ASSETS/name
   if p.is_symlink() or not p.is_file() or p.stat().st_size>MAX_ASSET:return self._send(404,{"status":"not-found"})
-  body=p.read_bytes();kind=mimetypes.guess_type(name)[0] or "application/octet-stream";self._headers(200,kind,len(body));self.wfile.write(body)
+  body=p.read_bytes();kind=mimetypes.guess_type(name)[0] or "application/octet-stream";etag='"'+hashlib.sha256(body).hexdigest()+'"'
+  if hmac.compare_digest(self.headers.get("If-None-Match",""),etag):return self._headers(304,kind,0,{"ETag":etag,"Cache-Control":"private, max-age=300"})
+  self._headers(200,kind,len(body),{"ETag":etag,"Cache-Control":"private, max-age=300"});self.wfile.write(body)
  def do_POST(self):
   origin=f"http://{HOST}:{self.server.server_port}"
   if not self._host() or not hmac.compare_digest(self.headers.get("Origin",""),origin):return self._send(403,{"status":"forbidden"})

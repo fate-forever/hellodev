@@ -7,12 +7,26 @@ import json
 from pathlib import Path
 from typing import Any
 
-from . import capabilities, lifecycle
+from . import capabilities, context_runtime, lifecycle
 from .project import TASK_ID_PATTERN, ProjectError, ProjectPaths, load_config, show_task, utc_now, write_json
 
 
 LEVELS = {"L0": 2_000, "L1": 16_000, "L2": 48_000}
 BYTES_PER_TOKEN_ENVELOPE = 4
+
+
+def _context_capabilities(value: Any) -> Any:
+    """Keep provider discovery useful without copying its tool catalog into briefs."""
+    if not isinstance(value, dict):
+        return value
+    projected = dict(value)
+    repository_tools = projected.get("repositoryTools")
+    if isinstance(repository_tools, dict):
+        projected["repositoryTools"] = {
+            key: repository_tools.get(key)
+            for key in ("state", "activeProvider", "suggestedProvider", "activationState")
+        }
+    return projected
 
 
 def _brief_path(root: Path, level: str, task_id: str | None) -> Path:
@@ -101,7 +115,7 @@ def build(root: Path, level: str, task_id: str | None, allow_l2: bool) -> dict[s
         "project": identity["project"],
         "lifecycle": identity["lifecycle"],
         "task": identity["task"],
-        "capabilities": material["capabilities"]["capabilities"],
+        "capabilities": _context_capabilities(material["capabilities"]["capabilities"]),
         "sources": material["sources"],
         "nocturnePolicy": "not-queried-automatically",
     }
@@ -145,12 +159,115 @@ def _truncate_utf8(text: str, byte_cap: int) -> tuple[str, bool]:
     return encoded[:byte_cap].decode("utf-8", errors="ignore"), True
 
 
+def _context_plane_projection(value: dict[str, Any]) -> dict[str, Any]:
+    return {
+        **{key: value[key] for key in (
+            "schemaVersion", "state", "backend", "scope", "querySha256", "snapshot",
+            "snapshotState", "continuation", "metrics", "readOnly", "persistencePerformed",
+            "rawContentPersisted",
+        )},
+        "items": [
+            {key: item[key] for key in (
+                "sourceType", "authority", "path", "startLine", "endLine", "fileSha256",
+                "snippetSha256", "score", "complete",
+            )}
+            for item in value["items"]
+        ],
+    }
+
+
+def _query_context_pack(
+    root: Path,
+    payload: dict[str, Any],
+    *,
+    token_budget: int,
+    query: str | None,
+    scope: str,
+    cursor: str | None,
+    persist_metrics: bool,
+) -> dict[str, Any]:
+    byte_cap = token_budget * BYTES_PER_TOKEN_ENVELOPE
+    lines = [
+        "# HelloDev context pack",
+        f"Project: {payload['project']['name']}",
+        f"Lifecycle: {payload['lifecycle']['phase']}",
+        f"Brief level: {payload['level']}",
+    ]
+    task = payload.get("task")
+    if isinstance(task, dict):
+        lines.append(f"Task: {task['id']} - {task['title']} ({task['status']})")
+    adapters = payload.get("capabilities")
+    if isinstance(adapters, dict):
+        lines.append(
+            "Adapters: Trellis="
+            f"{adapters.get('trellis', {}).get('state', 'unknown')}; "
+            f"Nocturne={adapters.get('nocturne', {}).get('state', 'unknown')}; "
+            "ContextPlane=native"
+        )
+    lines.append("Nocturne policy: not queried automatically.")
+    header = "\n".join(lines) + "\n"
+    if len(header.encode("utf-8")) >= byte_cap:
+        raise ProjectError("context token budget is too small for the Context Plane header")
+
+    fixed_budget = min(4096, max(0, byte_cap // 3 - len(header.encode("utf-8"))))
+    fixed_parts: list[str] = []
+    fixed_used = 0
+    fixed_truncated = False
+    for source in payload.get("sources", []):
+        if not isinstance(source, dict):
+            continue
+        title = f"\n## {source['path']}\n"
+        selected: list[str] = []
+        for line in str(source.get("text", "")).splitlines():
+            candidate = title + "\n".join(selected + [line]) + "\n"
+            if fixed_used + len(candidate.encode("utf-8")) > fixed_budget:
+                fixed_truncated = True
+                break
+            selected.append(line)
+        if selected:
+            block = title + "\n".join(selected) + "\n"
+            fixed_parts.append(block)
+            fixed_used += len(block.encode("utf-8"))
+        elif source.get("text"):
+            fixed_truncated = True
+
+    prefix = header + "".join(fixed_parts)
+    remaining = byte_cap - len(prefix.encode("utf-8"))
+    if remaining < 256:
+        prefix = header
+        remaining = byte_cap - len(prefix.encode("utf-8"))
+        fixed_truncated = bool(payload.get("sources"))
+    plane = context_runtime.build_context(
+        root,
+        query=query,
+        scope=scope,
+        byte_budget=min(48_000, remaining),
+        cursor=cursor,
+        persist_metrics=persist_metrics,
+    )
+    blocks = [
+        f"\n## {item['path']}:{item['startLine']}-{item['endLine']}\n{item['text']}\n"
+        for item in plane["items"]
+    ]
+    rendered = prefix + "".join(blocks)
+    if len(rendered.encode("utf-8")) > byte_cap:
+        raise ProjectError("Context Plane composition exceeded its preallocated budget")
+    return {
+        "text": rendered,
+        "truncated": fixed_truncated or plane["state"] == "partial" or plane["snapshotState"] == "bounded",
+        "contextPlane": _context_plane_projection(plane),
+    }
+
+
 def context_pack(
     root: Path,
     level: str,
     task_id: str | None,
     allow_l2: bool,
     token_budget: int,
+    query: str | None = None,
+    scope: str = "project",
+    cursor: str | None = None,
 ) -> dict[str, Any]:
     """Render a bounded, model-neutral handoff from the existing brief.
 
@@ -163,6 +280,25 @@ def context_pack(
         raise ProjectError("context token budget must be between 128 and 12000")
     result = build(root, level, task_id, allow_l2)
     payload = result["payload"]
+    if query is not None or cursor is not None:
+        composed = _query_context_pack(
+            root,
+            payload,
+            token_budget=token_budget,
+            query=query,
+            scope=scope,
+            cursor=cursor,
+            persist_metrics=True,
+        )
+        return {
+            "state": result["state"],
+            "level": level,
+            "taskId": task_id,
+            "tokenBudget": token_budget,
+            "byteCap": token_budget * BYTES_PER_TOKEN_ENVELOPE,
+            "budgetContract": "conservative UTF-8 envelope; exact tokens depend on the receiving model",
+            **composed,
+        }
     lines = [
         "# HelloDev context pack",
         f"Project: {payload['project']['name']}",
@@ -171,12 +307,16 @@ def context_pack(
     ]
     task = payload.get("task")
     if isinstance(task, dict):
-        lines.append(f"Task: {task['id']} — {task['title']} ({task['status']})")
+        lines.append(f"Task: {task['id']} - {task['title']} ({task['status']})")
     capabilities_payload = payload.get("capabilities")
     if isinstance(capabilities_payload, dict):
         trellis_state = capabilities_payload.get("trellis", {}).get("state", "unknown")
         nocturne_state = capabilities_payload.get("nocturne", {}).get("state", "unknown")
-        lines.append(f"Adapters: Trellis={trellis_state}; Nocturne={nocturne_state}")
+        repository_provider = capabilities_payload.get("repositoryTools", {}).get("suggestedProvider", "native")
+        lines.append(
+            f"Adapters: Trellis={trellis_state}; Nocturne={nocturne_state}; "
+            f"RepositoryTools={repository_provider}"
+        )
     lines.append("Nocturne policy: not queried automatically.")
     for source in payload.get("sources", []):
         if not isinstance(source, dict):
@@ -201,6 +341,9 @@ def preview_context_pack(
     task_id: str | None,
     allow_l2: bool,
     token_budget: int,
+    query: str | None = None,
+    scope: str = "project",
+    cursor: str | None = None,
 ) -> dict[str, Any]:
     """Render the context pack without refreshing capabilities or writing a cache."""
     if level == "L2" and not allow_l2:
@@ -218,10 +361,31 @@ def preview_context_pack(
         "project": identity["project"],
         "lifecycle": identity["lifecycle"],
         "task": identity["task"],
-        "capabilities": material["capabilities"]["capabilities"],
+        "capabilities": _context_capabilities(material["capabilities"]["capabilities"]),
         "sources": material["sources"],
         "nocturnePolicy": "not-queried-automatically",
     }
+    if query is not None or cursor is not None:
+        composed = _query_context_pack(
+            root,
+            payload,
+            token_budget=token_budget,
+            query=query,
+            scope=scope,
+            cursor=cursor,
+            persist_metrics=False,
+        )
+        return {
+            "state": "preview",
+            "level": level,
+            "taskId": task_id,
+            "sourceFingerprint": fingerprint,
+            "tokenBudget": token_budget,
+            "byteCap": token_budget * BYTES_PER_TOKEN_ENVELOPE,
+            "budgetContract": "conservative UTF-8 envelope; exact tokens depend on the receiving model",
+            **composed,
+            "persistencePerformed": False,
+        }
     lines = [
         "# HelloDev context pack",
         f"Project: {payload['project']['name']}",
@@ -237,6 +401,7 @@ def preview_context_pack(
             "Adapters: Trellis="
             f"{adapters.get('trellis', {}).get('state', 'unknown')}; "
             f"Nocturne={adapters.get('nocturne', {}).get('state', 'unknown')}"
+            f"; RepositoryTools={adapters.get('repositoryTools', {}).get('suggestedProvider', 'native')}"
         )
     lines.append("Nocturne policy: not queried automatically.")
     for source in payload["sources"]:

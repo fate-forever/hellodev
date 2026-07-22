@@ -19,6 +19,7 @@ from . import (
     briefs,
     capabilities,
     components,
+    context_runtime,
     context_policy,
     contracts,
     efficiency_cycles,
@@ -27,6 +28,7 @@ from . import (
     lifecycle,
     profiles,
     receipts,
+    repository_tools,
     resume,
     routing,
     sagas,
@@ -236,9 +238,17 @@ def _status(root: Path) -> dict[str, Any]:
         cached = capability_cache.get("capabilities") if capability_cache["state"] == "fresh" else None
         trellis_state = cached["trellis"] if isinstance(cached, dict) else {"state": "cache-missing-or-stale"}
         nocturne_state = cached["nocturne"] if isinstance(cached, dict) else {"state": "cache-missing-or-stale"}
+        repository_tool_state = (
+            cached["repositoryTools"]
+            if isinstance(cached, dict) and isinstance(cached.get("repositoryTools"), dict)
+            else {"state": "cache-missing-or-stale", "activeProvider": "native", "suggestedProvider": "native"}
+        )
+        context_plane_state = context_runtime.status(root)
     else:
         trellis_state = trellis.discover(root)
         nocturne_state = nocturne.status(root)
+        repository_tool_state = repository_tools.discover()
+        context_plane_state = context_runtime.status(root)
     return {
         "version": __version__,
         "root": str(root),
@@ -249,6 +259,8 @@ def _status(root: Path) -> dict[str, Any]:
         "capabilities": capability_cache,
         "trellis": trellis_state,
         "nocturne": nocturne_state,
+        "repositoryTools": repository_tool_state,
+        "contextPlane": context_plane_state,
         "distribution": components.availability(),
     }
 
@@ -321,6 +333,18 @@ def _compact_status(state: dict[str, Any]) -> dict[str, Any]:
         "suggestedLevel": next_step.get("suggestedLevel", context_policy.suggested_level("status"))
         if next_step is not None
         else "L0",
+        "repositoryTools": {
+            "state": state["repositoryTools"].get("state", "unknown"),
+            "activeProvider": state["repositoryTools"].get("activeProvider", "native"),
+            "suggestedProvider": state["repositoryTools"].get("suggestedProvider", "native"),
+            "activationState": state["repositoryTools"].get("activationState", "native-context-plane"),
+        },
+        "contextPlane": {
+            "state": state["contextPlane"].get("state", "unknown"),
+            "backend": state["contextPlane"].get("backend", "native"),
+            "lastQueryAvailable": isinstance(state["contextPlane"].get("lastQuery"), dict),
+            "rawContentPersisted": False,
+        },
     }
     if state["initialized"]:
         try:
@@ -917,11 +941,24 @@ class ProjectClient:
         token_budget: int = 1_200,
         resume_context: bool = False,
         preview: bool = False,
+        query: str | None = None,
+        scope: str = "project",
+        cursor: str | None = None,
     ) -> dict[str, Any]:
         with components.verification_session():
             if resume_context:
-                if intent is not None or level is not None or task is not None or allow_l2:
-                    raise ProjectError("resume context cannot be combined with level, intent, task, or allow_l2")
+                if (
+                    intent is not None
+                    or level is not None
+                    or task is not None
+                    or allow_l2
+                    or query is not None
+                    or cursor is not None
+                    or scope != "project"
+                ):
+                    raise ProjectError(
+                        "resume context cannot be combined with level, intent, task, allow_l2, query, scope, or cursor"
+                    )
                 return rewrite_commands(resume.context_pack(self._root, token_budget))
             if intent is not None and intent not in context_policy.INTENT_LEVELS:
                 raise ProjectError(f"unsupported context intent: {intent}")
@@ -929,7 +966,16 @@ class ProjectClient:
                 raise ProjectError("context level must be L0, L1, or L2")
             selected = context_policy.select_level(intent, level) if intent is not None else level or "L1"
             renderer = briefs.preview_context_pack if preview else briefs.context_pack
-            value = renderer(self._root, selected, task, allow_l2, token_budget)
+            value = renderer(
+                self._root,
+                selected,
+                task,
+                allow_l2,
+                token_budget,
+                query=query,
+                scope=scope,
+                cursor=cursor,
+            )
             value["selection"] = (
                 context_policy.suggest(intent, level)
                 if intent is not None

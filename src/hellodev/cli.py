@@ -22,6 +22,7 @@ from . import (
     capabilities,
     components,
     checkpoints,
+    context_runtime,
     context_policy,
     contracts,
     dashboard,
@@ -38,6 +39,7 @@ from . import (
     policy_evolution,
     profiles,
     receipts,
+    repository_tools,
     resume,
     routing,
     sagas,
@@ -167,6 +169,9 @@ def _parser(show_all: bool = False) -> argparse.ArgumentParser:
     context_pack.add_argument("--allow-l2", action="store_true", help="explicitly allow the larger L2 local-context budget")
     context_pack.add_argument("--token-budget", type=int, default=1_200, help="conservative token envelope, 128-12000")
     context_pack.add_argument("--resume", action="store_true", help="render the bounded F2 resume projection")
+    context_pack.add_argument("--query", default=None, help="specific repository symbol, path, or topic for Context Plane")
+    context_pack.add_argument("--scope", choices=("project", "code", "docs"), default="project")
+    context_pack.add_argument("--cursor", default=None, help="stable continuation cursor returned by a prior context page")
 
     smart_parser = commands.add_parser("smart", help="prepare-only lesson routing and narrow retrieval planning")
     smart_commands = smart_parser.add_subparsers(dest="smart_command", required=True)
@@ -532,9 +537,17 @@ def _status(root: Path) -> dict[str, Any]:
         cached_adapters = capability_cache.get("capabilities") if capability_cache["state"] == "fresh" else None
         trellis_state = cached_adapters["trellis"] if isinstance(cached_adapters, dict) else {"state": "cache-missing-or-stale"}
         nocturne_state = cached_adapters["nocturne"] if isinstance(cached_adapters, dict) else {"state": "cache-missing-or-stale"}
+        repository_tool_state = (
+            cached_adapters["repositoryTools"]
+            if isinstance(cached_adapters, dict) and isinstance(cached_adapters.get("repositoryTools"), dict)
+            else {"state": "cache-missing-or-stale", "activeProvider": "native", "suggestedProvider": "native"}
+        )
+        context_plane_state = context_runtime.status(root)
     else:
         trellis_state = trellis.discover(root)
         nocturne_state = nocturne.status(root)
+        repository_tool_state = repository_tools.discover()
+        context_plane_state = context_runtime.status(root)
     return {
         "version": __version__,
         "root": str(root),
@@ -545,6 +558,8 @@ def _status(root: Path) -> dict[str, Any]:
         "capabilities": capability_cache,
         "trellis": trellis_state,
         "nocturne": nocturne_state,
+        "repositoryTools": repository_tool_state,
+        "contextPlane": context_plane_state,
         "distribution": components.availability(),
     }
 
@@ -568,6 +583,8 @@ def _doctor(root: Path, include_fix_hints: bool = False) -> dict[str, Any]:
     trellis_compatible = state["trellis"]["state"] != "unsafe"
     nocturne_compatible = state["nocturne"]["state"] not in {"unsafe", "invalid"}
     distribution_state = state["distribution"]
+    repository_tool_state = state["repositoryTools"]
+    context_plane_state = state["contextPlane"]
     checks = [
         {"name": "python", "state": "ok", "detail": platform.python_version()},
         {
@@ -599,6 +616,24 @@ def _doctor(root: Path, include_fix_hints: bool = False) -> dict[str, Any]:
             "name": "nocturne-compatibility",
             "state": "ok" if nocturne_compatible else "incompatible",
             "detail": "public stdio configuration is optional and bounded" if nocturne_compatible else "configured adapter is unsafe or invalid",
+        },
+        {
+            "name": "repository-tool-provider",
+            "state": "ok" if repository_tool_state.get("state") == "ready" else "incompatible",
+            "detail": (
+                f"active={repository_tool_state.get('activeProvider', 'native')}; "
+                f"suggested={repository_tool_state.get('suggestedProvider', 'native')}; "
+                f"activation={repository_tool_state.get('activationState', 'native-context-plane')}"
+            ),
+        },
+        {
+            "name": "context-plane",
+            "state": "ok" if context_plane_state.get("state") == "ready" else "incompatible",
+            "detail": (
+                f"backend={context_plane_state.get('backend', 'native')}; "
+                f"lastQuery={'available' if isinstance(context_plane_state.get('lastQuery'), dict) else 'none'}; "
+                "rawContentPersisted=false"
+            ),
         },
         sdk_check,
         transaction_check,
@@ -849,6 +884,12 @@ def _compact_status(state: dict[str, Any]) -> dict[str, Any]:
         "suggestedLevel": next_step.get("suggestedLevel", context_policy.suggested_level(_next_context_intent(next_command)))
         if state["initialized"]
         else "L0",
+        "repositoryTools": {
+            "state": state["repositoryTools"].get("state", "unknown"),
+            "activeProvider": state["repositoryTools"].get("activeProvider", "native"),
+            "suggestedProvider": state["repositoryTools"].get("suggestedProvider", "native"),
+            "activationState": state["repositoryTools"].get("activationState", "native-context-plane"),
+        },
     }
     if state["initialized"]:
         try:
@@ -1600,6 +1641,9 @@ def _main(argv: list[str] | None = None) -> int:
                     allow_l2=args.allow_l2,
                     token_budget=args.token_budget,
                     resume_context=args.resume,
+                    query=args.query,
+                    scope=args.scope,
+                    cursor=args.cursor,
                 )
                 heading = "HelloDev resume context pack" if args.resume else "HelloDev context pack"
         elif args.command == "smart":

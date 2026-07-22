@@ -1,6 +1,6 @@
 {
   "schemaVersion": 1,
-  "distributionVersion": "0.14.3",
+  "distributionVersion": "0.16.0",
   "components": {
     "trellis": {
       "version": "0.6.7",

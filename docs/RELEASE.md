@@ -1,10 +1,12 @@
-# HelloDev Core 0.14.3 release checklist
+# HelloDev Core 0.16.0 release checklist
 
-0.14.3 adds an evidence-gated, hash-only LessonProposal review lifecycle and a
-bounded Nocturne recall projection on the validated 0.14.2 baseline. It does
-not add a memory database, model scoring, automatic external writes, or memory
-authority. Host protocol, adapter process boundaries and distribution behavior
-remain compatible; Dashboard projection schema advances to v9.
+0.16.0 adds a HelloDev-owned, native read-only Context Plane with deterministic
+query planning, budget-before-render composition, path/line/hash provenance and
+snapshot-bound cursor continuation. Context state persists metrics and hashes
+only, never query text, repository paths or source snippets. FastCtx is not a
+runtime dependency; any future integration remains an optional accelerator
+behind HelloDev contracts. Trellis/Nocturne process and data boundaries remain
+unchanged. Dashboard projection schema advances to v12.
 
 The source publication and a self-contained platform bundle are separate
 deliverables. Pushing the Core source does not mean that an archive, GitHub
@@ -12,13 +14,18 @@ Release, PyPI package or bundled Trellis/Nocturne runtime exists.
 
 ## 1. Version and source boundary
 
-Confirm `0.14.3` agrees in:
+Confirm `0.16.0` agrees in:
 
 - `pyproject.toml` and `src/hellodev/__init__.py`;
 - README, Quick Start and this checklist;
 - `src/hellodev/distribution/component-lock-v1.json`;
 - `src/hellodev/schemas/component-bundle-v1.schema.json`;
 - Dashboard markup, release scripts and version tests.
+
+Confirm the Core source contains no FastCtx source/binary/Pdfium payload. The
+native Context Plane must remain complete without FastCtx. Any compatibility
+snippet must be project-scoped, marked non-required/non-recommended, and never
+reported as an active MCP connection or a second daily interface.
 
 The editable source is `packages/hellodev-core`. GitHub publication must use an
 independent real working copy. Preserve all existing `outputs/` snapshots,
@@ -67,6 +74,28 @@ hellodev_do
 
 No MCP tool accepts arbitrary root, cwd, executable, argv, environment, adapter,
 policy, Dashboard, HostEnvelope or native commands.
+
+## 3b. Context Plane gate
+
+Verify all of the following:
+
+- repository discovery is root-bound, skips symlinks, sensitive files,
+  dependency/build directories and applies hard file/count/byte limits;
+- `project`, `code` and `docs` scopes are deterministic and query planning makes
+  no adapter/model call;
+- CJK queries use deterministic terms/bigrams and broad queries fail closed;
+- budget is applied before rendering and each returned item includes relative
+  path, start/end line, file SHA-256 and snippet SHA-256;
+- cursor values bind the canonical project root, repository snapshot, query,
+  scope, offset and checksum; mutation makes old cursors stale;
+- preview performs no write; ordinary CLI context persists only exact-schema
+  metrics/hash state without query, path or source text;
+- tampered Context Plane state fails closed and cannot smuggle repository text
+  through status, audit or Dashboard;
+- MCP continuation uses the cursor without adding a seventh tool;
+- Dashboard schema is 12 / Control Center 2.2 and remains GET/copy-only;
+- no Context Plane path executes shell, writes code, authorizes an adapter, or
+  changes Trellis/Nocturne authority.
 
 ## 3a. Knowledge lifecycle gate
 
@@ -152,14 +181,14 @@ The separate PyPI workflow must:
 
 Source push, tag, Release, asset upload, PyPI publication and user-level install
 are distinct externally visible actions and require the corresponding user
-authorization. The 0.14.3 source push does not create the others.
+authorization. The 0.16.0 source push does not create the others.
 
 ## 7. Validation commands
 
 Focused version/document/distribution tests:
 
 ```powershell
-python -m unittest tests.test_v121_oss tests.test_v13_gateway tests.test_v14_distribution tests.test_f2_dashboard -v
+python -m unittest tests.test_v16_context_plane tests.test_v121_oss tests.test_v13_gateway tests.test_v14_distribution tests.test_f2_dashboard -v
 ```
 
 Full release gate:
@@ -184,7 +213,7 @@ isolation and copy-only Dashboard contracts.
 Only after every release gate passes may maintainers create a new real directory:
 
 ```text
-outputs/hellodev-core-releases/0.14.3/
+outputs/hellodev-core-releases/0.16.0/
 ├─ source/
 ├─ python/
 ├─ bundles/

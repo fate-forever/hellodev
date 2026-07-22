@@ -1,9 +1,22 @@
 # HelloDev Core open questions
 
-Last refreshed: 2026-07-20
-Scope: released HelloDev 0.14.1 unified distribution on the completed 0.13.0 Agent-native baseline
+Last refreshed: 2026-07-22
+Scope: locally complete HelloDev 0.16.0 Context Plane
 
 Release status, artifact hashes, and immutable evidence belong in the root development ledger and the versioned release report. The checks below are the reusable gate for any source change; this orientation file does not duplicate mutable artifact hashes.
+
+## 0.16.0 implemented decisions and open boundaries
+
+1. Native repository context is a HelloDev Core capability, not a mandatory external MCP. It must work on a clean installation with no FastCtx, ripgrep or Git dependency. _Fixed implementation decision._
+2. The daily and MCP face remains `open`, `next`, `resume`, `status`, `context`, and `do`. Repository read/search/discovery are internal Context Plane operations rather than new public tools. _Fixed compatibility decision._
+3. P0 is read-only. Replace, shell, background jobs, PDF rendering, self-update, TUI and global host configuration are outside 0.16.0. Existing approval/transaction/receipt paths are not widened. _Fixed safety decision._
+4. Context output is selected under a budget before rendering, attaches path/line/hash provenance, and uses a stable repository-snapshot cursor. Mutation makes a cursor stale; a continuation cannot silently restart or repeat page one. _Fixed contract decision._
+5. Durable state may retain bounded metrics, fingerprints and cursor metadata but no raw source text. Trellis remains workflow authority and Nocturne remains advisory memory. _Fixed privacy/authority decision._
+6. FastCtx may remain discoverable as an optional future accelerator, but 0.16.0 completion and acceptance do not depend on executing it. Its absence is not degraded product functionality. _Fixed distribution decision._
+7. **Relevant but non-blocking:** precise `.gitignore` parity without an external parser, semantic/AST ranking, PDF/image extraction, and independently measured cross-host token savings remain later evaluation work. Safe deterministic fallbacks are sufficient for 0.16.0.
+8. **Background:** shell/job orchestration, write automation and external provider self-management remain deliberately deferred.
+
+Local acceptance completed with 196 fast and 236 full tests, two expected environment skips, compile/JavaScript checks, and a disposable offline wheel smoke covering `open/status` plus cursor pagination without overlap. This is source completion evidence only: no release snapshot, bundle, PyPI upload, GitHub push, global installation or host configuration change was performed.
 
 ## 0.14.1 implemented decisions and release result
 
@@ -132,7 +145,7 @@ These are inherited release facts recorded in the root development ledger and pr
 | Does usage refer only to a previous completed turn? | Exercise a completed turn followed by a started-but-incomplete turn; collect the former and never claim a current-response total. |
 | Is runtime usage exact but honestly unattested? | Assert automatic-vs-explicit `sourceTrust`, exact measurement/attestation, cumulative breakdown, subagent total, and absence of provider-verified wording. |
 | Does collection fail closed and preserve privacy? | Exercise missing child, malformed/regressing/conflicting input, unsafe path, idempotency, forbidden-value scan, and no-partial persistence. |
-| Is the UI still non-executable? | Run authenticated/unauthenticated schema-v7 smoke and assert exact `uiCapabilities`, filtered recovery/experiment/usage projections, and status-only commands. |
+| Is the UI still non-executable? | Run authenticated/unauthenticated schema-v12 smoke and assert exact `uiCapabilities`, filtered recovery/experiment/usage/Context Plane projections, no repository text, and status-only commands. |
 | Is the artifact reproducible and independent? | Snapshot verify, no-cache wheel, hashes, fresh venv, Demo/SDK smoke, exact Windows x86_64 archive smoke, then create a separate `outputs/hellodev-core-releases/0.14.1/`; preserve all prior releases unchanged. |
 
 ## Relevant but non-blocking gaps

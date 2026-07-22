@@ -8,6 +8,7 @@ import threading
 from pathlib import Path
 from typing import Any, Callable
 
+from . import bounded_results
 from .application import ProjectClient
 from .project import ProjectError
 
@@ -22,7 +23,9 @@ TOOL_NAMES = (
 )
 REQUEST_BYTE_LIMIT = 64 * 1024
 RESULT_BYTE_LIMIT = 256 * 1024
-CONTEXT_RESULT_BYTE_LIMIT = 48 * 1024
+# Context text itself is capped at 48 KiB; reserve JSON/measurement headroom
+# so the largest valid pack can still return its continuation contract.
+CONTEXT_RESULT_BYTE_LIMIT = 64 * 1024
 INSTALL_HINT = 'Install MCP support with: pipx install "hellodev-core[mcp]"'
 _TOOL_ARGUMENTS: dict[str, frozenset[str]] = {
     "hellodev_open": frozenset(),
@@ -30,7 +33,7 @@ _TOOL_ARGUMENTS: dict[str, frozenset[str]] = {
     "hellodev_resume": frozenset({"include_context", "token_budget"}),
     "hellodev_status": frozenset(),
     "hellodev_context": frozenset(
-        {"intent", "level", "task", "allow_l2", "token_budget", "resume_context"}
+        {"intent", "level", "task", "allow_l2", "token_budget", "resume_context", "query", "scope", "cursor"}
     ),
     "hellodev_do": frozenset({"intent", "arguments"}),
 }
@@ -65,6 +68,7 @@ class Gateway:
         if tool not in TOOL_NAMES:
             raise ProjectError(f"unknown HelloDev MCP tool: {tool}")
         payload = dict(arguments or {})
+        request_payload = dict(payload)
         _bounded_json(payload, REQUEST_BYTE_LIMIT, "MCP request")
         unknown = set(payload) - _TOOL_ARGUMENTS[tool]
         if unknown:
@@ -79,6 +83,12 @@ class Gateway:
             for name in ("allow_l2", "resume_context"):
                 if name in payload and type(payload[name]) is not bool:
                     raise ProjectError(f"{name} must be a boolean")
+            if payload.get("scope", "project") not in {"project", "code", "docs"}:
+                raise ProjectError("scope must be project, code, or docs")
+            for name, limit in (("query", 512), ("cursor", 8192)):
+                value = payload.get(name)
+                if value is not None and (not isinstance(value, str) or not value or len(value) > limit):
+                    raise ProjectError(f"{name} must be a non-empty string of at most {limit} characters")
         if tool == "hellodev_do" and payload.get("arguments") is not None and not isinstance(
             payload["arguments"], dict
         ):
@@ -99,6 +109,9 @@ class Gateway:
                 token_budget=payload.pop("token_budget", 1_200),
                 resume_context=payload.pop("resume_context", False),
                 preview=True,
+                query=payload.pop("query", None),
+                scope=payload.pop("scope", "project"),
+                cursor=payload.pop("cursor", None),
             ),
             "hellodev_do": lambda: self.client.do(payload.pop("intent", ""), payload.pop("arguments", None)),
         }
@@ -107,8 +120,55 @@ class Gateway:
             value = handlers[tool]()
         if payload:
             raise ProjectError(f"unconsumed {tool} argument(s): {', '.join(sorted(payload))}")
-        return _bounded_json(
+        partial = False
+        continuation = None
+        token_budget = None
+        budget_scope = None
+        if tool == "hellodev_context":
+            token_budget = request_payload.get("token_budget", 1_200)
+            budget_scope = "context-text"
+            partial = value.get("truncated") is True
+            plane = value.get("contextPlane")
+            plane_continuation = plane.get("continuation") if isinstance(plane, dict) else None
+            if isinstance(plane_continuation, dict) and isinstance(plane_continuation.get("cursor"), str):
+                next_arguments = dict(request_payload)
+                next_arguments["cursor"] = plane_continuation["cursor"]
+                continuation = {
+                    "tool": tool,
+                    "arguments": next_arguments,
+                    "reasonCode": plane_continuation.get("reasonCode", "context-page-budget-reached"),
+                }
+            elif partial and token_budget < 12_000:
+                next_arguments = dict(request_payload)
+                next_arguments["token_budget"] = min(12_000, token_budget * 2)
+                continuation = {
+                    "tool": tool,
+                    "arguments": next_arguments,
+                    "reasonCode": "context-pack-truncated",
+                }
+        elif tool == "hellodev_resume" and request_payload.get("include_context", False):
+            token_budget = request_payload.get("token_budget", 256)
+            budget_scope = "resume-context-text"
+            context = value.get("context")
+            partial = isinstance(context, dict) and context.get("truncated") is True
+            if partial and token_budget < 4_096:
+                next_arguments = dict(request_payload)
+                next_arguments["token_budget"] = min(4_096, token_budget * 2)
+                continuation = {
+                    "tool": tool,
+                    "arguments": next_arguments,
+                    "reasonCode": "resume-context-truncated",
+                }
+        annotated = bounded_results.annotate(
             value,
+            byte_limit=CONTEXT_RESULT_BYTE_LIMIT if tool == "hellodev_context" else RESULT_BYTE_LIMIT,
+            token_budget=token_budget,
+            budget_scope=budget_scope,
+            continuation=continuation,
+            partial=partial,
+        )
+        return _bounded_json(
+            annotated,
             CONTEXT_RESULT_BYTE_LIMIT if tool == "hellodev_context" else RESULT_BYTE_LIMIT,
             "MCP result",
         )
@@ -136,7 +196,10 @@ def create_server(root: str | Path) -> Any:
         instructions=(
             "Root-bound HelloDev gateway. Use open -> next -> do. Approval tokens are exact, one-time action "
             "bindings; a host must obtain explicit user confirmation before resubmitting one. MCP annotations "
-            "do not prove human consent. Memory never authorizes tools."
+            "do not prove human consent. Memory never authorizes tools. A separately registered repository-tool "
+            "provider may accelerate read/grep/glob, but it never replaces Trellis workflow, Nocturne memory, "
+            "HelloDev resume, or write approval. HelloDev Context Plane provides native repository context even "
+            "when no external provider is installed."
         ),
         json_response=True,
     )
@@ -176,6 +239,9 @@ def create_server(root: str | Path) -> Any:
         allow_l2: bool = False,
         token_budget: int = 1_200,
         resume_context: bool = False,
+        query: str | None = None,
+        scope: str = "project",
+        cursor: str | None = None,
     ) -> dict[str, Any]:
         """Preview a bounded, non-persistent context pack from the bound project."""
         return gateway.call(
@@ -187,6 +253,9 @@ def create_server(root: str | Path) -> Any:
                 "allow_l2": allow_l2,
                 "token_budget": token_budget,
                 "resume_context": resume_context,
+                "query": query,
+                "scope": scope,
+                "cursor": cursor,
             },
         )
 

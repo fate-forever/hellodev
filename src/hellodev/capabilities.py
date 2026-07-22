@@ -8,7 +8,7 @@ import os
 from pathlib import Path
 from typing import Any
 
-from . import components
+from . import components, context_runtime, repository_tools
 from .adapters import nocturne, trellis
 from .project import ProjectError, ProjectPaths, load_config, utc_now, write_json
 
@@ -76,6 +76,7 @@ def fingerprint(root: Path) -> str:
         "context": _marker(trellis_dir / "spec" / "context" / "CONTEXT.md"),
         "scripts": _script_markers(root),
         "componentRuntime": components.runtime_fingerprint(),
+        "repositoryTools": repository_tools.fingerprint_material(),
     }
     return hashlib.sha256(json.dumps(payload, sort_keys=True).encode("utf-8")).hexdigest()
 
@@ -113,7 +114,12 @@ def status(root: Path) -> dict[str, Any]:
 
 def refresh(root: Path) -> dict[str, Any]:
     current = fingerprint(root)
-    capabilities = {"trellis": trellis.discover(root), "nocturne": nocturne.status(root)}
+    capabilities = {
+        "trellis": trellis.discover(root),
+        "nocturne": nocturne.status(root),
+        "repositoryTools": repository_tools.discover(),
+        "contextPlane": context_runtime.status(root),
+    }
     cache = {"schemaVersion": 1, "fingerprint": current, "generatedAt": utc_now(), "capabilities": capabilities}
     write_json(ProjectPaths(root).capabilities_file, cache)
     return {"state": "fresh", "fingerprint": current, "generatedAt": cache["generatedAt"], "capabilities": capabilities}

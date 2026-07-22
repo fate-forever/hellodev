@@ -5,7 +5,7 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Any
 
-from . import capabilities, contracts, gates, lifecycle, sagas
+from . import capabilities, contracts, gates, lifecycle, repository_tools, sagas
 from .project import ProjectError, project_initialized
 
 
@@ -185,6 +185,7 @@ def next_decision(root: Path) -> dict[str, Any]:
 def build(root: Path) -> dict[str, Any]:
     """Build a bounded local recovery projection; no adapters or models run."""
     decision = next_decision(root)
+    repository_tool_state = repository_tools.discover()
     if not project_initialized(root):
         return {
             "schemaVersion": 1,
@@ -194,6 +195,11 @@ def build(root: Path) -> dict[str, Any]:
             "currentWorkItem": None,
             "incompleteSaga": None,
             "gateState": "unavailable",
+            "repositoryTools": {
+                "activeProvider": repository_tool_state["activeProvider"],
+                "suggestedProvider": repository_tool_state["suggestedProvider"],
+                "activationState": repository_tool_state["activationState"],
+            },
             "next": decision,
             "executionPerformed": False,
         }
@@ -237,6 +243,11 @@ def build(root: Path) -> dict[str, Any]:
         "pendingHostEnvelope": pending_envelopes[0] if pending_envelopes else None,
         "activeCanary": policy["activeCanary"],
         "checkpointState": checkpoint["state"],
+        "repositoryTools": {
+            "activeProvider": repository_tool_state["activeProvider"],
+            "suggestedProvider": repository_tool_state["suggestedProvider"],
+            "activationState": repository_tool_state["activationState"],
+        },
         "pendingLessonReview": (
             {
                 "id": pending_lesson["id"],
@@ -262,6 +273,7 @@ def context_pack(root: Path, token_budget: int = 256) -> dict[str, Any]:
     envelope = projection.get("pendingHostEnvelope")
     canary = projection.get("activeCanary")
     lesson = projection.get("pendingLessonReview")
+    repository_tool_state = projection["repositoryTools"]
     lines = [
         "HelloDev resume",
         f"phase: {projection['lifecyclePhase'] or 'uninitialized'}",
@@ -278,6 +290,12 @@ def context_pack(root: Path, token_budget: int = 256) -> dict[str, Any]:
         f"canary: {canary['proposalId']} {canary['observedTurns']}/{canary['turnLimit']}" if canary is not None else "canary: none",
         f"checkpoint: {projection.get('checkpointState', 'not-saved')}",
         f"lesson-review: {lesson['id']} {lesson['effectiveReviewState']}" if lesson is not None else "lesson-review: none",
+        (
+            "repository-tools: "
+            f"active={repository_tool_state['activeProvider']} "
+            f"suggested={repository_tool_state['suggestedProvider']} "
+            f"activation={repository_tool_state['activationState']}"
+        ),
         f"next: {projection['next']['command']}",
         f"reason: {projection['next']['reasonCode']}",
     ]

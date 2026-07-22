@@ -516,7 +516,17 @@ class HelloDevCliTests(unittest.TestCase):
             with opener.open(started["url"], timeout=2):
                 pass
             with opener.open(f"http://127.0.0.1:{port}/api/status", timeout=2) as response:
+                etag = response.headers["ETag"]
                 dashboard = json.loads(response.read().decode("utf-8"))
+            self.assertEqual(dashboard["schemaVersion"], 12)
+            self.assertTrue(etag.startswith('"') and etag.endswith('"'))
+            cached_request = urllib.request.Request(
+                f"http://127.0.0.1:{port}/api/status",
+                headers={"If-None-Match": etag},
+            )
+            with self.assertRaises(urllib.error.HTTPError) as not_modified:
+                opener.open(cached_request, timeout=2)
+            self.assertEqual(not_modified.exception.code, 304)
             self.assertNotIn("actionToken", dashboard)
             self.assertEqual(
                 {item["command"] for item in dashboard["actions"]},

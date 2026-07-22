@@ -42,7 +42,7 @@ def _saga_summaries(root: Path) -> list[dict[str, Any]]:
 
 def export(root: Path) -> dict[str, Any]:
     """Return hash-only/pointer-only audit state without persisting a report."""
-    from . import checkpoints, contracts, drift, gates, host_bridge, optimization, policy_evolution, resume, transactions
+    from . import checkpoints, context_runtime, contracts, drift, gates, host_bridge, optimization, policy_evolution, repository_tools, resume, transactions
 
     load_config(root)
     capability_state = capabilities.status(root)
@@ -70,6 +70,8 @@ def export(root: Path) -> dict[str, Any]:
     drift_value = drift.status(root)
     transaction_state = transactions.status(root)
     checkpoint = checkpoints.status(root)
+    repository_tool_state = repository_tools.discover()
+    context_plane_state = context_runtime.status(root)
     active_canary = policy["activeCanary"]
     experiment = None
     if active_canary is not None:
@@ -129,6 +131,14 @@ def export(root: Path) -> dict[str, Any]:
             "selectedVersion": host_bridge.HOST_PROTOCOL_VERSION,
             "supportedVersions": list(host_bridge.SUPPORTED_PROTOCOL_VERSIONS),
         },
+        "repositoryTools": {
+            "state": repository_tool_state["state"],
+            "activeProvider": repository_tool_state["activeProvider"],
+            "suggestedProvider": repository_tool_state["suggestedProvider"],
+            "activationState": repository_tool_state["activationState"],
+            "configurationInspected": False,
+        },
+        "contextPlane": context_plane_state,
         "recovery": {
             "state": transaction_state["state"],
             "pendingTransactionCount": transaction_state["pendingCount"],

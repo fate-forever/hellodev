@@ -7,7 +7,7 @@ import sys
 from pathlib import Path
 from typing import Any, Literal
 
-from . import components
+from . import components, repository_tools
 from .mcp_gateway import INSTALL_HINT, TOOL_NAMES, create_server, sdk_available
 from .project import ProjectError, resolve_root
 
@@ -70,6 +70,12 @@ def show(root: str | Path, host: Host | str) -> dict[str, Any]:
         "command": command,
         "arguments": arguments,
         "tools": list(TOOL_NAMES),
+        "contextPlane": {
+            "state": "ready",
+            "backend": "native",
+            "requiredExternalRuntime": False,
+        },
+        "repositoryTools": repository_tools.registration(host),
         "snippet": snippet,
         "writePerformed": False,
         "warning": (
@@ -82,6 +88,7 @@ def show(root: str | Path, host: Host | str) -> dict[str, Any]:
 def check(root: str | Path, host: Host | str) -> dict[str, Any]:
     rendered = show(root, host)
     distribution = components.status()
+    repository_tool = rendered["repositoryTools"]
     checks: list[dict[str, str]] = [
         {"name": "project-root", "state": "ok", "detail": rendered["root"]},
         {
@@ -110,6 +117,20 @@ def check(root: str | Path, host: Host | str) -> dict[str, Any]:
             "state": "not-inspected",
             "detail": "global and project host configuration were not read or modified",
         },
+        {
+            "name": "context-plane",
+            "state": "ok",
+            "detail": "native repository context is included in HelloDev; FastCtx is not required",
+        },
+        {
+            "name": "repository-tool-provider",
+            "state": "optional" if repository_tool["state"] == "unavailable" else "ok",
+            "detail": (
+                "native provider remains active"
+                if repository_tool["state"] == "unavailable"
+                else "FastCtx command discovered; optional project-scoped MCP snippet is available"
+            ),
+        },
     ]
     if sdk_available():
         try:
@@ -132,6 +153,8 @@ def check(root: str | Path, host: Host | str) -> dict[str, Any]:
         "root": rendered["root"],
         "checks": checks,
         "tools": rendered["tools"],
+        "contextPlane": rendered["contextPlane"],
+        "repositoryTools": repository_tool,
         "next": None if state == "ready" else INSTALL_HINT,
         "writePerformed": False,
     }

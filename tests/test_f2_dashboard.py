@@ -64,6 +64,10 @@ class F2DashboardTests(unittest.TestCase):
                 saga_id=saga["id"],
                 state="saga-active",
             )
+            recall_receipt = receipts.record(
+                root, "nocturne", "search_memory", "read",
+                {"query": "private recall query"}, {"raw": "private memory result"}, True,
+            )
             before = self._state_files(root)
 
             with patch(
@@ -81,7 +85,7 @@ class F2DashboardTests(unittest.TestCase):
             ):
                 value = dashboard.snapshot(root, "instance", "2026-07-16T00:00:00Z")
 
-            self.assertEqual(value["schemaVersion"], 9)
+            self.assertEqual(value["schemaVersion"], 12)
             self.assertTrue(value["readOnly"])
             continuity = value["continuity"]
             self.assertTrue(continuity["readOnly"])
@@ -100,6 +104,12 @@ class F2DashboardTests(unittest.TestCase):
             self.assertEqual(value["audit"]["lessonProposals"], 1)
             self.assertEqual(value["audit"]["evidenceLinks"], 1)
             self.assertEqual(value["audit"]["incompleteSagas"], 1)
+            self.assertEqual(value["now"]["blocker"]["kind"], "saga")
+            self.assertEqual(value["continuity"]["recoveryCenter"][0]["priority"], 3)
+            self.assertEqual(value["recallInspector"]["history"][0]["receiptId"], recall_receipt["id"])
+            self.assertFalse(value["recallInspector"]["rawResultExposed"])
+            self.assertFalse(value["recallInspector"]["resultDetailsPersisted"])
+            self.assertEqual(value["diagnostics"]["core"]["version"], "0.16.0")
             self.assertNotIn(private_lesson, json.dumps(value, ensure_ascii=False))
             self.assertNotIn("operator-only evidence", json.dumps(value, ensure_ascii=False))
             self.assertEqual(self._state_files(root), before)
@@ -282,7 +292,7 @@ class F2DashboardTests(unittest.TestCase):
             value = dashboard.snapshot(root, "instance", "2026-07-17T00:01:00Z")
 
             projected = value["efficiencyCycle"]
-            self.assertEqual(value["schemaVersion"], 9)
+            self.assertEqual(value["schemaVersion"], 12)
             self.assertTrue(projected["readOnly"])
             self.assertEqual(projected["windowSize"], 20)
             self.assertEqual(projected["cycleCount"], 1)
@@ -398,7 +408,7 @@ class F2DashboardTests(unittest.TestCase):
                 value = dashboard.snapshot(root, "instance", "2026-07-16T00:00:00Z")
 
             advanced = value["advanced"]
-            self.assertEqual(value["schemaVersion"], 9)
+            self.assertEqual(value["schemaVersion"], 12)
             self.assertEqual(advanced["host"]["completionCount"], 4)
             self.assertEqual(
                 set(advanced["host"]["latest"]),
@@ -457,7 +467,7 @@ class F2DashboardTests(unittest.TestCase):
             self.assertFalse(value["advanced"]["uiCapabilities"]["revertAllowed"])
             self.assertEqual(self._state_files(root), before)
 
-    def test_assets_only_fetch_status_and_offer_copy_only_commands(self) -> None:
+    def _legacy_assets_only_fetch_status_and_offer_copy_only_commands(self) -> None:
         assets = PACKAGE_ROOT / "src" / "hellodev" / "dashboard_assets"
         script = (assets / "app.js").read_text(encoding="utf-8")
         markup = (assets / "index.html").read_text(encoding="utf-8")
@@ -505,7 +515,56 @@ class F2DashboardTests(unittest.TestCase):
         self.assertNotIn("<input", markup)
         self.assertIn("Canary Evaluation v2", markup)
         self.assertIn("Portable checkpoint", markup)
-        self.assertIn("HELLODEV 0.14.3", markup)
+        self.assertIn("HELLODEV 0.16.0", markup)
+
+
+    def test_assets_are_interactive_bounded_and_copy_only(self) -> None:
+        assets = PACKAGE_ROOT / "src" / "hellodev" / "dashboard_assets"
+        script = (assets / "app.js").read_text(encoding="utf-8")
+        markup = (assets / "index.html").read_text(encoding="utf-8")
+        self.assertIn('fetch("/api/status", { cache: "no-cache", headers })', script)
+        self.assertIn('headers["If-None-Match"] = statusEtag', script)
+        self.assertIn("document.hidden", script)
+        self.assertIn("PAGE_SIZE = 10", script)
+        self.assertIn("navigator.clipboard.writeText", script)
+        self.assertNotIn("/api/action", script)
+        self.assertNotIn("method:", script)
+        self.assertNotIn("innerHTML", script)
+        self.assertNotIn("<input", markup)
+        self.assertIn("只读边界", markup)
+        self.assertIn("LessonProposal", markup)
+        self.assertIn('data-tab="recovery"', markup)
+        self.assertIn('data-tab="environment"', markup)
+        self.assertIn("Recall Inspector", markup)
+        self.assertIn("严格优先级恢复", markup)
+        self.assertIn("20-turn ReflectionCycle", markup)
+        self.assertIn("HELLODEV 0.16.0", markup)
+        for forbidden in (
+            "hellodev host complete", "hellodev policy stage", "hellodev policy canary",
+            "hellodev policy commit", "hellodev policy revert",
+        ):
+            self.assertNotIn(forbidden, script)
+            self.assertNotIn(forbidden, markup)
+
+    def test_server_etag_ignores_generated_at_only_changes(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = self._root(directory)
+            values = [
+                {"schemaVersion": 10, "generatedAt": "first", "state": "same"},
+                {"schemaVersion": 10, "generatedAt": "second", "state": "same"},
+            ]
+            server = dashboard.Server(("127.0.0.1", 0), root, "t" * 40, "c" * 40, "instance", "started")
+            try:
+                with patch("hellodev.dashboard.SNAPSHOT_TTL", 0), patch(
+                    "hellodev.dashboard.snapshot", side_effect=values
+                ) as projected:
+                    first_body, first_etag = server.status_payload()
+                    second_body, second_etag = server.status_payload()
+                self.assertEqual(projected.call_count, 2)
+                self.assertEqual(first_etag, second_etag)
+                self.assertEqual(first_body, second_body)
+            finally:
+                server.server_close()
 
 
 if __name__ == "__main__":

@@ -1,7 +1,7 @@
 # HelloDev Core codebase map
 
-Last refreshed: 2026-07-20
-Scope: released HelloDev 0.14.1 unified distribution on the retained 0.13.0 ProjectClient/MCP baseline
+Last refreshed: 2026-07-22
+Scope: locally complete HelloDev 0.16.0 Context Plane
 
 ## Source and runtime boundaries
 
@@ -15,6 +15,17 @@ Scope: released HelloDev 0.14.1 unified distribution on the retained 0.13.0 Proj
 | Selected HelloDev home | Runtime marker and Nocturne writable data | User-writable data plane, separate from the bundle payload and project state. |
 | `outputs/hellodev` | Legacy Codex-plugin reference | Frozen evidence, never an active build source. |
 | Versioned release copies | Immutable source/wheel evidence | Must remain separate from source and installed caches. |
+
+## 0.16.0 Context Plane implementation map
+
+- `context_runtime/contracts.py`, `native.py`, `planner.py`, and `cursor.py` own dependency-free, root-bound repository discovery, deterministic query/CJK-bigram ranking, budget-before-render composition, path/line/hash provenance and snapshot-bound continuation. Scans skip symlinks, sensitive files, dependency/build directories and enforce hard file/byte limits. _Implemented and verified._
+- `briefs.py` preserves L0/L1/L2 while using task/query selection for `--query`; fixed Trellis sources reserve budget and repository snippets consume only the remainder. Preview does not persist; normal CLI context writes metrics/hash only. _Implemented and verified._
+- `mcp_gateway.py` still exposes exactly six root-bound tools. `hellodev_context` accepts optional `query`, `scope`, and `cursor`; partial results continue through the same tool and cursor rather than adding a raw repository tool namespace. _Implemented and verified._
+- `application.py`, `capabilities.py`, `audit.py`, `dashboard.py`, CLI doctor/status and Control Center schema 12 project filtered Context Plane state. Query, path and source text are excluded from durable/audit/UI state. _Implemented and tamper-tested._
+- `repository_tools.py` is compatibility/diagnostic only. Native Context Plane is complete without FastCtx; a discovered FastCtx command is marked an optional, non-required, non-recommended accelerator and receives no workflow, memory, write or shell authority. _Implemented boundary._
+- `bounded_results.py` continues to measure HelloDev MCP payloads. Context completeness is decided before annotation by the Context Plane cursor contract. _Implemented integration._
+
+Validation: fast 196 tests and full 236 tests passed with two expected environment skips; Python compilation and Dashboard JavaScript syntax passed. A disposable 225,263-byte wheel installed offline without dependencies, reported 0.16.0, completed empty-project `open/status`, and paged a five-file Context Plane query as 3 + 2 items with zero overlap. The temporary wheel SHA-256 was `2b130e8ac1b9e86def255167c4154956769ba48715360bcd16131c8d2208027e`; it was removed after validation and is not a release artifact.
 
 ## 0.13.0 retained baseline
 
@@ -73,6 +84,7 @@ packages/hellodev-core/
     approval.py                     atomic exact operation/policy tokens
     capabilities.py                 content-fingerprinted discovery cache
     briefs.py                       bounded brief/context-pack rendering
+    context_runtime/                native discovery, ranking, provenance and cursor contracts
     lifecycle.py                    project-local lifecycle
     project.py                      safe project paths/config/tasks
     receipts.py                     schema-v3 hash-only audit records
@@ -122,6 +134,7 @@ packages/hellodev-core/
     test_v13_gateway.py             ProjectClient/integration/progressive-help baseline
     test_v13_mcp.py                 official-SDK six-tool stdio contract
     test_v14_distribution.py        bundle, resolver, onboarding, data and path security
+    test_v16_context_plane.py       native query, cursor, privacy, MCP and Dashboard matrix
 ```
 
 ## F1 request flow

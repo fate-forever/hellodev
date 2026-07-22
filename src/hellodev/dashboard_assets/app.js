@@ -1,313 +1,182 @@
 const $ = (id) => document.getElementById(id);
+const PAGE_SIZE = 10;
+let currentData = null;
+let statusEtag = null;
+let lessonFilter = "all";
+let lessonPage = 0;
+let pollTimer = null;
 
+const clear = (id) => { $(id).replaceChildren(); };
+const text = (value, fallback = "—") => value === null || value === undefined ? fallback : String(value);
 const toast = (message) => {
-  const element = $("toast");
-  element.textContent = message;
-  element.classList.add("show");
-  setTimeout(() => element.classList.remove("show"), 1500);
+  $("toast").textContent = message;
+  $("toast").classList.add("show");
+  setTimeout(() => $("toast").classList.remove("show"), 1500);
 };
-
 const copyCommand = async (command) => {
   try {
     await navigator.clipboard.writeText(command);
-    toast("命令已复制，不会在页面中执行");
+    toast("命令已复制；页面没有执行它");
   } catch {
     toast("无法访问剪贴板，请手动复制");
   }
 };
-
-document.querySelectorAll("#tabs button").forEach((button) => {
-  button.addEventListener("click", () => {
-    document.querySelectorAll("#tabs button, .panel").forEach((element) => element.classList.remove("active"));
-    button.classList.add("active");
-    $(button.dataset.tab).classList.add("active");
-  });
-});
-
-const row = (title, detail, badge) => {
+const row = (title, detail, badge = "info") => {
   const element = document.createElement("div");
   element.className = "row";
-  const text = document.createElement("div");
-  const strong = document.createElement("div");
+  const body = document.createElement("div");
+  const strong = document.createElement("strong");
   const small = document.createElement("small");
   const tag = document.createElement("span");
   strong.textContent = title;
   small.textContent = detail;
-  tag.className = "pill";
+  tag.className = `pill state-${badge}`;
   tag.textContent = badge;
-  text.append(strong, small);
-  element.append(text, tag);
+  body.append(strong, small);
+  element.append(body, tag);
   return element;
 };
-
-const empty = (message) => row("暂无", message, "local");
-
+const empty = (message) => row("暂无", message, "empty");
 const action = (label, command, detail = "仅复制命令") => {
   const element = row(label, detail, "copy");
   element.classList.add("command-row");
   element.querySelector(".pill").remove();
-  const commandText = document.createElement("code");
-  commandText.textContent = command;
+  const code = document.createElement("code");
+  code.textContent = command;
   const button = document.createElement("button");
   button.className = "copy";
-  button.textContent = "复制命令";
+  button.type = "button";
+  button.textContent = "复制";
   button.addEventListener("click", () => copyCommand(command));
-  element.append(commandText, button);
+  element.append(code, button);
   return element;
 };
+const metric = (label, value) => {
+  const article = document.createElement("article");
+  const span = document.createElement("span");
+  const strong = document.createElement("strong");
+  span.textContent = label;
+  strong.textContent = text(value);
+  article.append(span, strong);
+  return article;
+};
 
-const compactHash = (value) => value ? `${value.slice(0, 12)}…` : "none";
-const optimizationCommands = new Set([
-  "hellodev optimize plan --intent code",
-  "hellodev optimize proposals",
-]);
-const advancedCommands = new Set([
-  "hellodev host status",
-  "hellodev policy status",
-  "hellodev drift status",
-  "hellodev transaction status",
-  "hellodev policy checkpoint status",
-]);
+document.querySelectorAll("#tabs button").forEach((button) => button.addEventListener("click", () => {
+  document.querySelectorAll("#tabs button, .panel").forEach((element) => element.classList.remove("active"));
+  button.classList.add("active");
+  $(button.dataset.tab).classList.add("active");
+}));
 
-async function load() {
-  const response = await fetch("/api/status", { cache: "no-store" });
-  if (!response.ok) throw new Error("status request failed");
-  const data = await response.json();
-  const continuity = data.continuity;
-  const optimization = data.optimization;
-  const efficiencyCycle = data.efficiencyCycle;
-  const advanced = data.advanced;
-  $("health-dot").style.background = "var(--accent)";
+const renderLessons = () => {
+  clear("lessons");
+  const proposals = currentData.continuity.lessonProposals.filter((item) => lessonFilter === "all" || item.effectiveReviewState === lessonFilter);
+  const pageCount = Math.max(1, Math.ceil(proposals.length / PAGE_SIZE));
+  lessonPage = Math.min(lessonPage, pageCount - 1);
+  proposals.slice(lessonPage * PAGE_SIZE, (lessonPage + 1) * PAGE_SIZE).forEach((item) => $("lessons").append(row(
+    `${item.id} · ${item.destination}`,
+    `scope=${item.scope} · evidence=${item.evidenceReceiptCount} · expires=${item.expiresAt || "none"} · reason=${item.reviewReasonCode || "none"}`,
+    item.effectiveReviewState,
+  ), action("查看审核元数据", item.reviewCommand, "只读 lesson show")));
+  if (!proposals.length) $("lessons").append(empty("当前筛选没有 LessonProposal"));
+  $("lesson-page").textContent = `${lessonPage + 1} / ${pageCount} · ${proposals.length} items`;
+  $("lesson-prev").disabled = lessonPage === 0;
+  $("lesson-next").disabled = lessonPage >= pageCount - 1;
+};
+
+const render = (data) => {
+  currentData = data;
+  const now = data.now;
+  $("health-dot").className = "ok";
   $("health-text").textContent = "本机 · 只读";
-  $("phase").textContent = data.lifecycle.phase;
-  $("tasks").textContent = `L${data.tasks.localCount} / T${data.tasks.trellisActiveCount}`;
-  $("cache").textContent = data.capabilities.state;
-  $("tokens").textContent = data.usage.totalTokens ?? "未采集";
-
-  $("adapters").append(
-    row("Trellis", data.adapters.trellis.detail, data.adapters.trellis.state),
-    row("Nocturne", data.adapters.nocturne.detail, data.adapters.nocturne.state),
-  );
-  $("next-action").append(action(
-    continuity.resume.next.reason,
-    continuity.resume.next.command,
-    `${continuity.resume.next.reasonCode} · ${continuity.resume.next.suggestedLevel}`,
-  ));
+  $("updated-at").textContent = `更新 ${data.generatedAt}`;
+  $("phase").textContent = now.phase;
+  $("work-item-id").textContent = now.workItem?.id || "未绑定";
+  $("task-counts").textContent = `${data.tasks.localCount} / ${data.tasks.trellisActiveCount} / ${data.tasks.linkedWorkItemCount}`;
+  $("tokens").textContent = data.usage.totalTokens ?? "unavailable";
+  clear("next-action");
+  $("next-action").append(action(now.next.reason, now.next.command, `${now.next.reasonCode} · ${now.next.suggestedLevel}`));
+  clear("blocker");
+  $("blocker").append(now.blocker ? row(now.blocker.title, now.blocker.detail, now.blocker.kind) : empty("没有恢复阻塞；按唯一下一步继续"));
+  clear("component-health");
+  [["Capabilities", now.health.capabilities], ["Trellis", now.health.trellis], ["Nocturne", now.health.nocturne], ["Repository tools", now.health.repositoryTools]].forEach(([name, state]) => $("component-health").append(row(name, "当前只读探测状态", state)));
+  $("component-health").append(row("Context Plane", "native bounded repository context", now.health.contextPlane));
+  clear("actions");
   data.actions.forEach((item) => $("actions").append(action(item.label, item.command)));
 
-  const work = continuity.currentWorkItem;
-  $("work-item").append(
-    row("任务真相", `HelloDev 本地 ${data.tasks.localCount} · Trellis 活跃 ${data.tasks.trellisActiveCount}`, `${data.tasks.linkedWorkItemCount} WorkItem`),
-    row("生命周期", `${data.lifecycle.cycleId} · 已完成 ${data.lifecycle.completedCycleCount} 周期`, data.lifecycle.phase),
-  );
-  if (work) {
-    $("work-item").append(
-      row(work.id, `${work.backend} · ${work.nativeRef}`, work.fingerprintCurrent ? "current" : "stale"),
-      row("关联阶段", work.linkedPhase, "pointer-only"),
-    );
-  } else {
-    $("work-item").append(empty("尚未选择本地或 Trellis 任务指针"));
-  }
+  clear("recovery-list");
+  data.continuity.recoveryCenter.forEach((item) => $("recovery-list").append(action(`${item.priority}. ${item.title}`, item.command, `${item.kind} · ${item.state} · ${item.detail}`)));
+  if (!data.continuity.recoveryCenter.length) $("recovery-list").append(empty("没有待恢复事务；NOW 仍只给出一条日常下一步"));
 
-  const gate = continuity.gate;
-  $("gate").append(
-    row("对齐状态", `${gate.validEvidenceCount} 条当前证据，${gate.staleEvidenceCount} 条过期证据`, gate.state),
-    row("Finish policy", "Gate 只读投影，不会修改 Trellis", gate.finishPolicy),
-    row("Lifecycle consistency", gate.lifecycleConsistency.reasonCode, gate.lifecycleConsistency.state),
-  );
-
-  if (continuity.incompleteSagas.length) {
-    continuity.incompleteSagas.forEach((saga) => $("sagas").append(action(
-      `${saga.id} · ${saga.phase}`,
-      saga.nextCommand,
-      `${saga.reasonCode}${saga.requiresInput ? " · 需要人工输入" : ""}`,
-    )));
-  } else {
-    $("sagas").append(empty("没有需要恢复的 Saga"));
-  }
-
-  $("optimization-traces").textContent = optimization.traceCount;
-  $("optimization-reports").textContent = optimization.reportCount;
-  $("optimization-proposals").textContent = optimization.proposalCount;
-  $("optimization-stale").textContent = optimization.staleProposalCount;
-  $("cycle-count").textContent = efficiencyCycle.cycleCount;
-  $("cycle-progress").textContent = `${efficiencyCycle.pendingReceiptCount}/${efficiencyCycle.windowSize}`;
-  $("cycle-remaining").textContent = efficiencyCycle.remainingUntilNextCycle ?? "unavailable";
-  const latestCycle = efficiencyCycle.latest;
-  if (latestCycle) {
-    const metrics = latestCycle.metrics;
-    $("efficiency-cycle").append(
-      row("Average tokens", `${metrics.totalTokens} tokens across ${latestCycle.receiptCount} completed turns`, String(metrics.averageTokens)),
-      row("Cache reuse", "Cached input share across the trusted twenty-turn window", `${(metrics.cacheShareBasisPoints / 100).toFixed(1)}%`),
-      row("Subagent share", `${metrics.subagentCount} delegated runs in the window`, `${(metrics.subagentShareBasisPoints / 100).toFixed(1)}%`),
-      action("Efficiency recommendation", latestCycle.recommendation.command, latestCycle.recommendation.reasonCode),
-      row("Policy boundary", "Advice only; human review and tighten-only validation remain required", latestCycle.policyEffect.applyAllowed ? "apply" : "no auto-apply"),
-    );
-  } else {
-    $("efficiency-cycle").append(empty(`Collect ${efficiencyCycle.remainingUntilNextCycle ?? efficiencyCycle.windowSize} more trusted completed turns for the first reflection cycle`));
-  }
-  $("optimization-status").append(
-    row("状态", optimization.reasonCode, optimization.state),
-    row("Usage", "只显示显式关联到 DecisionTrace 的用量；不会自动绑定最新收据", optimization.usageState),
-    row("Apply", "0.10 不允许页面应用 Proposal", optimization.applyAllowed ? "allowed" : "disabled"),
-  );
-
-  const envelope = optimization.latestUsageEnvelope;
-  if (envelope) {
-    const plan = envelope.plan;
-    const actual = envelope.actual;
-    $("optimization-usage").append(
-      row("Budget", `context=${plan.contextTokenCeiling} · total=${plan.totalTokenCeiling ?? "未计划"} · subagent=${plan.subagentTokenCeiling ?? "未计划"}`, envelope.budgetState),
-      row("Agents", `上限 ${plan.maxSubagents}`, "planned"),
-    );
-    if (actual) {
-      $("optimization-usage").append(
-        row("实际 Token", `root=${actual.rootTokens} · subagent=${actual.subagentTokens}`, String(actual.totalTokens)),
-        row("Subagents", "仅外部上报计数", String(actual.subagentCount)),
-        row("Trust", `${actual.sourceKind} · ${actual.sourceTrust}`, actual.accuracy),
-      );
-    } else {
-      $("optimization-usage").append(empty("没有可用的 usage 回执"));
-    }
-  } else {
-    $("optimization-usage").append(empty("尚无 DecisionTrace usage envelope"));
-  }
-
-  const reflection = optimization.latestReflection;
-  if (reflection) {
-    $("optimization-reflection").append(
-      row("Findings", "确定性规则命中数", String(reflection.findingCount)),
-      row("Recommendations", "仅计数，不展示内容", String(reflection.recommendationCount)),
-      row("Trend sample", `usage available=${reflection.usageAvailableCount}`, String(reflection.sampleSize)),
-      row("Average reported", "仅外部上报的平均 Token", reflection.averageReportedTokens ?? "unavailable"),
-      row("Deep reflection", `token ceiling=${reflection.deepReflectionTokenCeiling ?? "不可用"}`, reflection.deepReflectionState),
-      row("Anomaly", "只读布尔投影", reflection.anomaly ? "yes" : "no"),
-    );
-  } else {
-    $("optimization-reflection").append(empty("尚无 ReflectionReport"));
-  }
-
-  if (optimizationCommands.has(optimization.nextCommand)) {
-    $("optimization-action").append(action(
-      optimization.proposalCount ? "查看 EvolutionProposal" : "生成优化计划",
-      optimization.nextCommand,
-      "固定 allowlist 命令，仅复制",
-    ));
-  } else {
-    $("optimization-action").append(empty("建议命令不在页面 allowlist"));
-  }
-
-  $("host-completions").textContent = advanced.host.completionCount;
-  $("host-late").textContent = advanced.host.lateCount;
-  $("policy-events").textContent = advanced.policy.eventCount;
-  $("drift-findings").textContent = advanced.drift.findingCount;
-  $("pending-transactions").textContent = advanced.transactions.pendingCount;
-  $("pending-envelopes").textContent = advanced.host.pendingEnvelopeCount;
-  $("checkpoint-state").textContent = advanced.checkpoint.state;
-  $("host-protocol").textContent = advanced.hostProtocol.selectedVersion;
-  $("host-status").append(
-    row("状态", `${advanced.host.budgetExceededCount} 次预算超限`, advanced.host.state),
-    row("Usage trust", `asserted=${advanced.host.usageTrustCounts.hostAsserted} · unavailable=${advanced.host.usageTrustCounts.unavailable}`, "counts"),
-  );
-  if (advanced.host.latest) {
-    $("host-status").append(row(
-      "最近完成",
-      `budget=${advanced.host.latest.budgetState} · usage=${advanced.host.latest.usageTrust} · late=${advanced.host.latest.late}`,
-      advanced.host.latest.outcome,
-    ));
-  }
-  $("policy-status").append(
-    row("状态", `${advanced.policy.eventCount} 个本地 ledger 事件`, advanced.policy.state),
-    row("活动 Proposal", "仅布尔投影，不展示策略或 patch", advanced.policy.activeProposal ? "yes" : "no"),
-    row("试运行窗口", `expired=${advanced.policy.canaryExpired}`, advanced.policy.canaryActive ? "active" : "inactive"),
-    row("完整性", "只显示结构校验状态", advanced.policy.integrityState),
-  );
-  $("transaction-status").append(
-    row("State", "Authorized policy mutations recover without a new approval token", advanced.transactions.state),
-    row("Pending", "Only counts and one read-only status command are exposed", String(advanced.transactions.pendingCount)),
-  );
-  const experiment = advanced.canaryEvaluation;
-  if (experiment) {
-    $("canary-evaluation").append(
-      row("State", experiment.reasonCode, experiment.state),
-      row("Evidence", `baseline=${experiment.baselineObserved}/${experiment.required} · canary=${experiment.canaryObserved}/${experiment.required}`, experiment.evidenceSufficient ? "sufficient" : "insufficient"),
-      row("Commit", `missing baseline=${experiment.missingBaseline} · canary=${experiment.missingCanary}`, experiment.commitEligible ? "eligible" : "blocked"),
-      row("Regressions", "Success, retry, delegation and budget comparisons", String(experiment.regressionCount)),
-      row("Token trust", "No exact/provider claim is made for Host assertions", experiment.comparison.tokenTrust),
-    );
-  } else {
-    $("canary-evaluation").append(empty("No active Canary experiment"));
-  }
-  $("checkpoint-status").append(
-    row("State", "External CI/Git/Host copies provide the durable comparison point", advanced.checkpoint.state),
-    row("Matched", "A local saved copy alone is not tamper-proof", advanced.checkpoint.matched ?? "not-saved"),
-  );
-  const driftCounts = advanced.drift.counts;
-  $("drift-status").append(
-    row("状态", advanced.drift.reasonCode, advanced.drift.state),
-    row("Findings", `warning=${advanced.drift.warningCount} · info=${advanced.drift.infoCount}`, String(advanced.drift.findingCount)),
-    row("Completions", `current=${driftCounts.currentCompletions} · historical=${driftCounts.historicalCompletions}`, advanced.drift.runtimeState),
-    row("Violations", `asserted=${driftCounts.assertedUsage} · unavailable=${driftCounts.unavailableUsage}`, String(driftCounts.violations)),
-  );
-  [
-    ["检查 Host Bridge", advanced.host.command],
-    ["检查 Policy Ledger", advanced.policy.command],
-    ["检查 Drift", advanced.drift.command],
-    ["检查 Transaction WAL", advanced.transactions.command],
-    ["检查 Checkpoint", advanced.checkpoint.command],
-  ].forEach(([label, command]) => {
-    if (advancedCommands.has(command)) {
-      $("advanced-actions").append(action(label, command, "固定只读命令，仅复制"));
-    }
+  const states = ["pending", "verified", "persisted", "rejected", "expired", "superseded"];
+  clear("lesson-summary");
+  states.forEach((state) => $("lesson-summary").append(metric(state, data.continuity.lessonProposals.filter((item) => item.effectiveReviewState === state).length)));
+  clear("lesson-filters");
+  ["all", ...states].forEach((state) => {
+    const button = document.createElement("button");
+    button.type = "button";
+    button.className = state === lessonFilter ? "filter active" : "filter";
+    button.textContent = state;
+    button.addEventListener("click", () => { lessonFilter = state; lessonPage = 0; render(data); });
+    $("lesson-filters").append(button);
   });
-  const ui = advanced.uiCapabilities;
-  $("advanced-capabilities").append(
-    row("Copy only", "页面不提交任何运行结果或策略变更", ui.copyOnly ? "enabled" : "disabled"),
-    row("变更控制", `apply=${ui.applyAllowed} · commit=${ui.commitAllowed} · revert=${ui.revertAllowed}`, ui.actionApiAvailable ? "action-api" : "no-action-api"),
+  renderLessons();
+  clear("recall-policy");
+  const recall = data.recallInspector;
+  $("recall-policy").append(
+    row("Authority", `${recall.source}; instructionAuthority=${recall.instructionAuthority}`, recall.authority),
+    row("Conflict", recall.conflictPolicy, recall.freshness),
+    row("Privacy", `raw exposed=${recall.rawResultExposed}; result details persisted=${recall.resultDetailsPersisted}`, recall.quarantinePolicy),
   );
+  clear("recall-history");
+  recall.history.forEach((item) => $("recall-history").append(row(item.receiptId, `${item.recordedAt} · accepted/quarantined unavailable by design`, item.outcome)));
+  if (!recall.history.length) $("recall-history").append(empty("尚无 Nocturne search_memory 回执"));
+  clear("recall-template");
+  $("recall-template").append(action("准备本地优先 Recall", 'hellodev do recall --query "<query>"', "在终端补充窄域 query"));
 
-  ["new", "started", "planned", "working", "checking", "finished"].forEach((phase) => {
-    const element = document.createElement("span");
-    element.textContent = phase;
-    if (phase === data.lifecycle.phase) element.className = "current";
-    $("timeline").append(element);
+  clear("environment-core");
+  const diagnostics = data.diagnostics;
+  const contextLast = data.contextPlane.lastQuery;
+  $("environment-core").append(metric("Core", diagnostics.core.version), metric("Mode", diagnostics.core.mode), metric("Distribution", diagnostics.core.distributionState), metric("Schema", data.schemaVersion), metric("Context backend", data.contextPlane.backend), metric("Last context", contextLast?.state || "none"), metric("Context files", contextLast?.metrics?.scannedFileCount ?? 0), metric("Context bytes", contextLast?.metrics?.returnedTextBytes ?? 0), metric("Optional accelerator", diagnostics.repositoryTools.suggestedProvider));
+  [["codex", "codex-checks"], ["cursor", "cursor-checks"]].forEach(([host, target]) => {
+    clear(target);
+    diagnostics.hosts[host].checks.forEach((item) => $(target).append(row(item.name, "project-scoped compatibility check", item.state)));
+    if (!diagnostics.hosts[host].checks.length) $(target).append(empty(diagnostics.hosts[host].reason || "未取得诊断"));
   });
-  data.briefs.forEach((item) => $("briefs").append(row(item.name, item.updated, item.state)));
-  if (!data.briefs.length) $("briefs").append(empty("还没有缓存 brief"));
+  clear("diagnostic-fixes");
+  diagnostics.fixes.forEach((item) => $("diagnostic-fixes").append(action(item.label, item.command)));
+  if (!diagnostics.fixes.length) $("diagnostic-fixes").append(empty("当前没有确定性修复建议"));
 
-  if (continuity.lessonProposals.length) {
-    continuity.lessonProposals.forEach((proposal) => $("lessons").append(row(
-      `${proposal.id} · ${proposal.destination}`,
-      `scope=${proposal.scope} · evidence=${proposal.evidenceReceiptCount} · expires=${proposal.expiresAt} · sha256=${compactHash(proposal.lessonSha256)}`,
-      `${proposal.state} / review=${proposal.effectiveReviewState}`,
-    )));
-  } else {
-    $("lessons").append(empty("没有 hash-only LessonProposal"));
-  }
-  $("recall-template").append(action(
-    "准备本地优先 Recall",
-    'hellodev do recall --query "<query>"',
-    "固定模板；在终端补充 query",
-  ));
+  const cycle = data.efficiencyCycle;
+  clear("efficiency-metrics");
+  $("efficiency-metrics").append(metric("Cycles", cycle.cycleCount), metric("Progress", `${cycle.pendingReceiptCount}/${cycle.windowSize}`), metric("Remaining", cycle.remainingUntilNextCycle ?? "unavailable"), metric("Usage trust", data.usage.displayBasis));
+  clear("efficiency-cycle");
+  if (cycle.latest) {
+    $("efficiency-cycle").append(row("Average tokens", `${cycle.latest.receiptCount} completed turns`, cycle.latest.metrics.averageTokens), action("Recommendation", cycle.latest.recommendation.command, cycle.latest.recommendation.reasonCode));
+  } else $("efficiency-cycle").append(empty("等待可信的 completed-turn receipts"));
+  clear("optimization-status");
+  $("optimization-status").append(row("Optimize", data.optimization.reasonCode, data.optimization.state), row("Proposals", `stale=${data.optimization.staleProposalCount}`, data.optimization.proposalCount));
+  clear("advanced-status");
+  $("advanced-status").append(row("Transactions", "恢复无需重新授权", data.advanced.transactions.state), row("Host envelopes", `pending=${data.advanced.host.pendingEnvelopeCount}`, data.advanced.host.state), row("Policy / Drift", `${data.advanced.policy.state} / ${data.advanced.drift.state}`, data.advanced.checkpoint.state));
 
-  $("audit").append(
-    row("Receipts", "只显示计数", String(data.audit.receipts)),
-    row("Sagas", "跨系统验证记录", String(data.audit.sagas)),
-    row("未完成 Saga", "可恢复但不自动执行", String(data.audit.incompleteSagas)),
-    row("WorkItems", "仅任务指针", String(data.audit.workItems)),
-    row("LessonProposals", "仅摘要哈希与连续性链接", String(data.audit.lessonProposals)),
-    row("EvidenceLinks", "绑定指纹的证据链接", String(data.audit.evidenceLinks)),
-    row("DecisionTrace", "仅计数", String(data.audit.optimizationTraces)),
-    row("ReflectionReport", "仅计数", String(data.audit.reflectionReports)),
-    row("EvolutionProposal", "仅计数，不可应用", String(data.audit.evolutionProposals)),
-    row("Host completions", "仅计数", String(data.audit.hostCompletions)),
-    row("Policy events", "仅计数，不展示 patch", String(data.audit.policyEvents)),
-    row("Drift findings", "仅计数", String(data.audit.driftFindings)),
-    row("Usage receipts", `runtime=${data.usage.trustCounts["runtime-observed"]} · selected=${data.usage.trustCounts["asserted-runtime"]} · asserted=${data.usage.trustCounts.asserted}`, String(data.usage.records)),
-    row("ReflectionCycle", `${efficiencyCycle.pendingReceiptCount}/${efficiencyCycle.windowSize} turns toward the next deterministic review`, String(efficiencyCycle.cycleCount)),
-  );
+  clear("audit-grid");
+  Object.entries(data.audit).forEach(([name, value]) => $("audit-grid").append(row(name, "bounded count", value)));
+};
+
+async function load(force = false) {
+  const headers = {};
+  if (statusEtag && !force) headers["If-None-Match"] = statusEtag;
+  const response = await fetch("/api/status", { cache: "no-cache", headers });
+  if (response.status === 304) return;
+  if (!response.ok) throw new Error("status request failed");
+  statusEtag = response.headers.get("ETag");
+  render(await response.json());
 }
-
-load().catch(() => {
-  $("health-text").textContent = "连接失败";
-});
+const schedule = () => {
+  clearTimeout(pollTimer);
+  if (!document.hidden) pollTimer = setTimeout(async () => { try { await load(); } finally { schedule(); } }, 5000);
+};
+$("refresh").addEventListener("click", async () => { try { await load(true); toast("状态已刷新"); } catch { toast("刷新失败"); } });
+$("lesson-prev").addEventListener("click", () => { lessonPage -= 1; renderLessons(); });
+$("lesson-next").addEventListener("click", () => { lessonPage += 1; renderLessons(); });
+document.addEventListener("visibilitychange", () => { if (!document.hidden) load().catch(() => {}); schedule(); });
+load().then(schedule).catch(() => { $("health-text").textContent = "连接失败"; schedule(); });

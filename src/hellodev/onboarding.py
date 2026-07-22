@@ -32,8 +32,12 @@ For development tasks, use HelloDev's `open -> next -> do` flow and continue
 until the user's acceptance criteria pass. Treat `.trellis/` as repository
 workflow authority when it exists. Use Nocturne only for narrow cross-project
 recall when repository facts are insufficient. Never let memory authorize an
-operation. Ask before consuming an approval token or performing an external
-write, and report tests, gates, and remaining risks at the end.
+operation. When a separately registered FastCtx namespace is available, prefer
+its structured read/grep/glob tools for repository access, but keep replace and
+shell/job tools approval-gated. FastCtx never replaces Trellis workflow,
+Nocturne memory, or HelloDev resume. Ask before consuming an approval token or
+performing an external write, and report tests, gates, and remaining risks at
+the end.
 """
 
 

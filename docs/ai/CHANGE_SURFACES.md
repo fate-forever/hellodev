@@ -1,10 +1,13 @@
 # HelloDev Core change surfaces
 
-Last refreshed: 2026-07-20
-Scope: released HelloDev 0.14.1 distribution on the retained 0.13.0 application/MCP baseline
+Last refreshed: 2026-07-22
+Scope: locally complete HelloDev 0.16.0 Context Plane
 
 | Change goal | Primary source | Required tests | Documentation / real checks |
 |---|---|---|---|
+| Add/change native Context Plane contracts | `context_runtime/contracts.py`, `native.py`, `planner.py`, `cursor.py` | v0.16 root/symlink/encoding/search/ranking/budget/cursor tests | Keep Core dependency-free, read-only and root-bound; stable ordering, bounded scans, no raw-content persistence, deterministic stale-cursor failure. |
+| Change Context Plane integration | `briefs.py`, `application.py`, `mcp_gateway.py`, `capabilities.py`, `audit.py`, `dashboard.py` | v0.16 integration plus inherited context/MCP/Dashboard/privacy suites | Preserve six tools and `open -> next -> do`; source items carry path/line/hash/completeness; Dashboard remains read-only and filters code text. |
+| Change optional repository accelerator | `repository_tools.py`, Context Plane backend registry, `integrations.py` | native-only and external-unavailable conformance tests | Native is complete without FastCtx. Discovery is not connectivity or authorization; never auto-install, execute, register or mutate host config. |
 | Add/change component manifest or resolver | `components.py`, packaged manifest/notices, `capabilities.py` | v0.14 manifest/runtime negatives plus cache-staleness tests | Reject traversal, absolute paths, symlinks/reparse points, case collisions, unknown fields, missing/extra controlled files, size/hash/version/license/platform mismatch before spawn. |
 | Change Core/bundle licensing metadata | `pyproject.toml`, `LICENSE`, component lock, `THIRD_PARTY_NOTICES.md`, bundle `LICENSES`/SBOM/source materials | package-data checks, manifest/license lock checks, release-boundary scan | Core MIT applies only to Core source/wheel; Trellis AGPL-3.0-only, Nocturne MIT, runtimes and dependencies retain their own terms. Hash matching is not legal sign-off. |
 | Change bundled Trellis launch | `components.py`, `adapters/trellis.py`, application/CLI binding helpers | v0.14 component tests, Trellis intents, approval identity tests | Bundle command prefix and every file-backed entry point are execution-bound; project `.trellis/` remains the workflow authority and is never merged into `.hellodev/`. |
@@ -18,7 +21,7 @@ Scope: released HelloDev 0.14.1 distribution on the retained 0.13.0 application/
 | Change PyPI publication | `publish.yml`, `verify_release_version.py` | static workflow tests plus exact artifact smoke | Release-only, protected `pypi` environment, publish-job-only OIDC, no rebuild or API token. |
 | Add/change `open`, `next`, or `do` grammar | `cli.py`, `routing.py` | `test_f1_cli.py`, `test_routing.py` | Three-minute guide stays `open -> next -> do`; next keeps one primary command. |
 | Change progressive efficiency disclosure | `resume.py`, `efficiency_cycles.py`, `optimization.py`, `routing.py` | routing finished/active/safety/quiet/invalid-state matrix | Safety/recovery first; only finished may show one bounded read-only cycle/optimization hint; no model/adapter/apply. |
-| Change context intent or budget | `context_policy.py`, `briefs.py` | `test_context_policy.py`, F1 CLI context cases | README context table; L2 remains opt-in. |
+| Change context intent or budget | `context_policy.py`, `briefs.py`, `context_runtime/` | `test_context_policy.py`, F1 CLI context cases, v0.16 budget/cursor matrix | README context table; L2 remains opt-in; allocate before rendering and never split a source item or invent token exactness. |
 | Change local recall candidates/scoring | `knowledge_flows.py` | `test_knowledge_flows.py` | Preserve bounded bytes/files, source labels, and no raw persistence. |
 | Change Nocturne recall execution | `cli.py`, `knowledge_flows.py`, `adapters/nocturne.py` | F1 CLI recall + adapter tests | Test local-only, strict continuation, autopilot allowlist, and broad-scope rejection. |
 | Change remember or Saga flow | `knowledge_flows.py`, `sagas.py`, `receipts.py`, `cli.py` | knowledge, receipt evidence, F1 CLI tests | Verify gate/test + human verification; writes never automatic. |
@@ -28,7 +31,7 @@ Scope: released HelloDev 0.14.1 distribution on the retained 0.13.0 application/
 | Change receipts | `receipts.py` | `test_receipt_evidence.py`, `test_profiles.py` | Update migration contract; preserve hash-only fields and v1/v2 reads. |
 | Change Trellis intent mappings | `adapters/trellis.py`, `routing.py` | `test_trellis_intents.py`, routing/F1 tests | Run disposable real-Trellis strict/trusted matrix; generic gateway is not typed evidence. |
 | Change project config | `project.py`, `profiles.py`, `optimization.py` | CLI/profile/migration and proposal-staleness tests | Prove legacy projects load without destructive migration; config changes stale prior proposals. |
-| Change dashboard/API | `dashboard.py`, `dashboard_assets/*` | dashboard regression/security/privacy tests | Keep loopback/token/Host/Origin controls, schema-v7 filtered recovery/experiment/usage projections, status-only commands, and read/copy-only API. |
+| Change dashboard/API | `dashboard.py`, `dashboard_assets/*` | dashboard regression/security/privacy tests | Keep loopback/token/Host/Origin controls, schema-v12 filtered recovery/experiment/usage/Context Plane projections, status-only commands, and read/copy-only API. |
 | Change WorkItem/LessonProposal/EvidenceLink contracts | `contracts.py`, `project.py` | `test_contracts.py`, F2 CLI migration/privacy cases | Preserve pointer/hash-only stores, safe native references, and nondestructive 0.8 reads. |
 | Change cross-session recovery | `resume.py`, `routing.py`, `cli.py`, `sagas.py` | `test_resume_gates.py`, F2 CLI cross-process cases | Preserve deterministic priority, one suggested command, no adapter calls, and bounded context. |
 | Change gate projection/finish policy | `gates.py`, `contracts.py`, `cli.py`, `project.py` | gate unit + F2 CLI strict/suggest matrix | Keep Trellis mutation false; stale fingerprints must invalidate evidence. |
@@ -76,7 +79,7 @@ Scope: released HelloDev 0.14.1 distribution on the retained 0.13.0 application/
 - Missing, insufficient, or ready optimization state is quiet and must not create optimization/acknowledgement state during next/open/resume reads.
 - Corrupt/malformed/future advisory optimization or usage state is omitted only from optional finished next/resume disclosure; explicit advanced diagnostics remain fail-closed.
 - Development source, release copies, and installed runtime caches remain separate real directories.
-- The standalone Control Center schema v7 uses a trust-dependent usage display basis, exposes only bounded usage/cycle/recovery/experiment/checkpoint fields, and keeps filtered host/policy/drift status copy-only. It exposes no raw context, approval token, policy patch, cycle hashes, complete/stage/cancel/canary/commit/revert or action API.
+- The standalone Control Center schema v12 uses a trust-dependent usage display basis, exposes only bounded usage/cycle/recovery/experiment/checkpoint/Context Plane metrics, and keeps filtered host/policy/drift status copy-only. It exposes no query, repository path, source text, raw context, approval token, policy patch, cycle hashes, complete/stage/cancel/canary/commit/revert or action API.
 - Explicit 0.14 bundle setup verifies the prepackaged runtime and creates only the selected HelloDev home data/marker state. Unattended global installation, PATH/registry/shell changes, user-level Codex/Cursor config mutation, and UI execution remain outside the product.
 
 ## Review checklist for an F1/F2/optimization/disclosure/evolution change
@@ -101,7 +104,7 @@ Scope: released HelloDev 0.14.1 distribution on the retained 0.13.0 application/
 18. For completion changes, test strict stdin shape/size/argv exclusion, tamper, stale binding, conflicting replay, exact idempotency, late handling, unavailable tokens, host-asserted labels, privacy, and zero gate authority.
 19. For evolution changes, test stage non-effect, staged cancel/idempotency, single active proposal, equal bounded baseline/canary samples, all v2 comparison dimensions, policy violations, clean-drift commit gate, independent approvals, receipt-store preflight, WAL phase recovery, and rejection of a second/arbitrary revert.
 20. For ledger/drift changes, test individual event/link/head tamper plus portable checkpoint mismatch; state the full-history-rewrite and local-checkpoint limitations explicitly.
-21. For dashboard changes, assert schema v7, trust-dependent display basis, filtered cycle/usage/recovery/experiment fields, exact `uiCapabilities`, status-only commands, and absence of any action endpoint.
+21. For dashboard changes, assert schema v12, trust-dependent display basis, filtered cycle/usage/recovery/experiment/Context Plane fields, exact `uiCapabilities`, status-only commands, absence of query/path/source text, and absence of any action endpoint.
 22. For collector changes, test automatic-vs-explicit trust, project cwd binding, previous-vs-current turn semantics, line-bounded cumulative deltas, complete recursive subagent aggregation, thread/file/line/event/byte bounds, symlink/reparse refusal, missing/incomplete-child no-partial behavior, malformed/regressing/conflicting input, idempotency, additive-store rollback, and forbidden-value scans.
 23. For transaction changes, inject failure before WAL write and after every durable phase; prove the same authorization is reusable before WAL or recoverable without raw token after WAL.
 24. For Host SDK changes, test protocol negotiation, source/wheel schema loading, pending-metadata privacy, idempotent completion, and unavailable token handling.
