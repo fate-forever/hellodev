@@ -361,7 +361,7 @@ class Server(ThreadingHTTPServer):
  def status_payload(self):
   now=time.monotonic()
   with self.snapshot_lock:
-   if self.snapshot_cache is None or now-self.snapshot_cache[0]>SNAPSHOT_TTL:
+   if self.snapshot_cache is None or now-self.snapshot_cache[0]>=SNAPSHOT_TTL:
     value=snapshot(self.root,self.instance,self.started);semantic={key:item for key,item in value.items() if key!="generatedAt"};digest=hashlib.sha256(json.dumps(semantic,ensure_ascii=False,separators=(",",":"),sort_keys=True).encode()).hexdigest()
     if self.snapshot_cache is not None and self.snapshot_cache[3]==digest:self.snapshot_cache=(now,self.snapshot_cache[1],self.snapshot_cache[2],digest)
     else:

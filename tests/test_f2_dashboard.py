@@ -556,8 +556,8 @@ class F2DashboardTests(unittest.TestCase):
             server = dashboard.Server(("127.0.0.1", 0), root, "t" * 40, "c" * 40, "instance", "started")
             try:
                 with patch("hellodev.dashboard.SNAPSHOT_TTL", 0), patch(
-                    "hellodev.dashboard.snapshot", side_effect=values
-                ) as projected:
+                    "hellodev.dashboard.time.monotonic", side_effect=[100.0, 100.0]
+                ), patch("hellodev.dashboard.snapshot", side_effect=values) as projected:
                     first_body, first_etag = server.status_payload()
                     second_body, second_etag = server.status_payload()
                 self.assertEqual(projected.call_count, 2)
