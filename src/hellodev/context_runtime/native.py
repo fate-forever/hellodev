@@ -7,14 +7,17 @@ import fnmatch
 import hashlib
 import json
 import os
+import stat as stat_module
 import threading
 from collections import OrderedDict
+from contextlib import contextmanager
+from contextvars import ContextVar
 from dataclasses import replace
 from pathlib import Path, PurePosixPath
 from typing import Iterable
 
 from ..project import ProjectError
-from .contracts import RepositoryFile, RepositorySnapshot
+from .contracts import RepositoryFile, RepositoryMarker, RepositorySnapshot
 
 
 MAX_FILES = 3000
@@ -24,7 +27,8 @@ MAX_CACHE_ROOTS = 4
 
 EXCLUDED_DIRECTORIES = {
     ".git", ".hellodev", ".codex", ".cursor", ".idea", ".vscode",
-    ".mypy_cache", ".pytest_cache", ".ruff_cache", "__pycache__",
+    ".cache", ".mypy_cache", ".npm", ".nox", ".pnpm-store", ".pytest_cache",
+    ".ruff_cache", ".tox", ".yarn", "__pycache__",
     ".venv", "venv", "node_modules", "dist", "build", "out", "target", "vendor",
 }
 SENSITIVE_NAMES = {".env", ".npmrc", ".pypirc", "credentials", "credentials.json"}
@@ -40,6 +44,23 @@ TEXT_NAMES = {"dockerfile", "makefile", "license", "readme", "agents.md", ".giti
 
 _CACHE: "OrderedDict[str, RepositorySnapshot]" = OrderedDict()
 _CACHE_LOCK = threading.Lock()
+_REQUEST_SNAPSHOTS: ContextVar[dict[str, RepositorySnapshot] | None] = ContextVar(
+    "hellodev_request_snapshots", default=None
+)
+
+
+@contextmanager
+def snapshot_session() -> Iterable[None]:
+    """Reuse immutable repository bytes within one synchronous read request."""
+    existing = _REQUEST_SNAPSHOTS.get()
+    if existing is not None:
+        yield
+        return
+    token = _REQUEST_SNAPSHOTS.set({})
+    try:
+        yield
+    finally:
+        _REQUEST_SNAPSHOTS.reset(token)
 
 
 def _increment(counts: dict[str, int], reason: str) -> None:
@@ -100,12 +121,31 @@ def _text_candidate(path: Path) -> bool:
     return path.suffix.lower() in TEXT_SUFFIXES or name in TEXT_NAMES
 
 
-def _candidates(root: Path) -> tuple[list[tuple[str, Path, os.stat_result]], dict[str, int], str]:
+def _candidates(
+    root: Path,
+) -> tuple[list[tuple[str, Path, os.stat_result]], dict[str, int], str, tuple[RepositoryMarker, ...]]:
     rules = _safe_gitignore_rules(root)
     counts: dict[str, int] = {}
     candidates: list[tuple[str, Path, os.stat_result]] = []
+    markers: list[RepositoryMarker] = []
     for directory, nested, names in os.walk(root, followlinks=False):
         base = Path(directory)
+        try:
+            base_stat = base.stat()
+            base.resolve().relative_to(root)
+        except (OSError, ValueError):
+            _increment(counts, "unsafe-path")
+            nested[:] = []
+            continue
+        markers.append(
+            RepositoryMarker(
+                path="." if base == root else base.relative_to(root).as_posix(),
+                kind="directory",
+                size=base_stat.st_size,
+                modified_ns=base_stat.st_mtime_ns,
+                changed_ns=base_stat.st_ctime_ns,
+            )
+        )
         kept: list[str] = []
         for name in sorted(nested):
             child = base / name
@@ -139,17 +179,53 @@ def _candidates(root: Path) -> tuple[list[tuple[str, Path, os.stat_result]], dic
                 _increment(counts, "non-regular")
                 continue
             candidates.append((relative, path, stat))
+            markers.append(
+                RepositoryMarker(
+                    path=relative,
+                    kind="file",
+                    size=stat.st_size,
+                    modified_ns=stat.st_mtime_ns,
+                    changed_ns=stat.st_ctime_ns,
+                )
+            )
             if len(candidates) >= MAX_FILES:
                 _increment(counts, "file-limit")
                 break
         if len(candidates) >= MAX_FILES:
             break
-    markers = [
+    identity_markers = [
         {"path": relative, "size": stat.st_size, "mtime": stat.st_mtime_ns, "ctime": stat.st_ctime_ns}
         for relative, _, stat in candidates
     ]
-    fingerprint = hashlib.sha256(json.dumps(markers, sort_keys=True, separators=(",", ":")).encode()).hexdigest()
-    return candidates, counts, fingerprint
+    fingerprint = hashlib.sha256(
+        json.dumps(identity_markers, sort_keys=True, separators=(",", ":")).encode()
+    ).hexdigest()
+    return candidates, counts, fingerprint, tuple(markers)
+
+
+def metadata_unchanged(root: Path, markers: tuple[RepositoryMarker, ...]) -> bool:
+    resolved = root.resolve()
+    for marker in markers:
+        path = resolved if marker.path == "." else resolved / marker.path
+        try:
+            current = os.stat(path, follow_symlinks=False)
+        except OSError:
+            return False
+        if marker.kind == "directory":
+            if not stat_module.S_ISDIR(current.st_mode):
+                return False
+        elif marker.kind == "file":
+            if not stat_module.S_ISREG(current.st_mode):
+                return False
+        else:
+            return False
+        if (
+            current.st_size != marker.size
+            or current.st_mtime_ns != marker.modified_ns
+            or current.st_ctime_ns != marker.changed_ns
+        ):
+            return False
+    return True
 
 
 def _decode(data: bytes) -> str:
@@ -162,13 +238,19 @@ def _decode(data: bytes) -> str:
 
 def snapshot(root: Path) -> RepositorySnapshot:
     resolved = root.resolve()
-    candidates, skipped, metadata_fingerprint = _candidates(resolved)
     key = str(resolved)
+    request_snapshots = _REQUEST_SNAPSHOTS.get()
+    if request_snapshots is not None and key in request_snapshots:
+        return replace(request_snapshots[key], cache_hit=True)
     with _CACHE_LOCK:
         existing = _CACHE.get(key)
-        if existing is not None and existing.metadata_fingerprint == metadata_fingerprint:
+        if existing is not None and metadata_unchanged(resolved, existing.markers):
             _CACHE.move_to_end(key)
-            return replace(existing, cache_hit=True)
+            selected = replace(existing, cache_hit=True)
+            if request_snapshots is not None:
+                request_snapshots[key] = selected
+            return selected
+    candidates, skipped, metadata_fingerprint, markers = _candidates(resolved)
 
     records: list[RepositoryFile] = []
     scanned_bytes = 0
@@ -211,12 +293,15 @@ def snapshot(root: Path) -> RepositorySnapshot:
         scanned_bytes=scanned_bytes,
         skipped=tuple(sorted(skipped.items())),
         state="bounded" if bounded else "complete",
+        markers=markers,
     )
     with _CACHE_LOCK:
         _CACHE[key] = value
         _CACHE.move_to_end(key)
         while len(_CACHE) > MAX_CACHE_ROOTS:
             _CACHE.popitem(last=False)
+    if request_snapshots is not None:
+        request_snapshots[key] = value
     return value
 
 
@@ -225,4 +310,6 @@ def clear_cache() -> None:
         _CACHE.clear()
 
 
-__all__ = ["MAX_FILE_BYTES", "MAX_FILES", "MAX_SCAN_BYTES", "clear_cache", "snapshot"]
+__all__ = [
+    "MAX_FILE_BYTES", "MAX_FILES", "MAX_SCAN_BYTES", "clear_cache", "metadata_unchanged", "snapshot",
+]

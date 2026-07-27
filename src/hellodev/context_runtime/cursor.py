@@ -6,13 +6,14 @@ import base64
 import binascii
 import hashlib
 import json
+import re
 from pathlib import Path
 from typing import Any
 
 from ..project import ProjectError
 
 
-CURSOR_SCHEMA_VERSION = 1
+CURSOR_SCHEMA_VERSION = 2
 MAX_CURSOR_BYTES = 4096
 
 
@@ -24,7 +25,10 @@ def root_digest(root: Path) -> str:
     return hashlib.sha256(str(root.resolve()).encode("utf-8")).hexdigest()
 
 
-def encode(*, root: Path, snapshot: str, query: str, scope: str, offset: int) -> str:
+def encode(
+    *, root: Path, snapshot: str, query: str, scope: str, offset: int,
+    result_session: str, focus_root: str,
+) -> str:
     payload = {
         "schemaVersion": CURSOR_SCHEMA_VERSION,
         "rootSha256": root_digest(root),
@@ -32,6 +36,8 @@ def encode(*, root: Path, snapshot: str, query: str, scope: str, offset: int) ->
         "query": query,
         "scope": scope,
         "offset": offset,
+        "resultSession": result_session,
+        "focusRoot": focus_root,
     }
     payload["checksum"] = hashlib.sha256(_canonical(payload)).hexdigest()
     raw = _canonical(payload)
@@ -49,16 +55,22 @@ def decode(root: Path, token: str) -> dict[str, Any]:
         value = json.loads(raw.decode("utf-8"))
     except (ValueError, UnicodeError, json.JSONDecodeError, binascii.Error) as error:
         raise ProjectError("invalid context cursor") from error
-    if not isinstance(value, dict) or set(value) != {
-        "schemaVersion", "rootSha256", "snapshot", "query", "scope", "offset", "checksum"
-    }:
+    if not isinstance(value, dict):
+        raise ProjectError("invalid context cursor schema")
+    version = value.get("schemaVersion")
+    expected_keys = {
+        1: {"schemaVersion", "rootSha256", "snapshot", "query", "scope", "offset", "checksum"},
+        2: {
+            "schemaVersion", "rootSha256", "snapshot", "query", "scope", "offset",
+            "resultSession", "focusRoot", "checksum",
+        },
+    }
+    if type(version) is not int or version not in expected_keys or set(value) != expected_keys[version]:
         raise ProjectError("invalid context cursor schema")
     checksum = value.pop("checksum")
     expected = hashlib.sha256(_canonical(value)).hexdigest()
     if not isinstance(checksum, str) or checksum != expected:
         raise ProjectError("context cursor checksum mismatch")
-    if value.get("schemaVersion") != CURSOR_SCHEMA_VERSION:
-        raise ProjectError("unsupported context cursor version")
     if value.get("rootSha256") != root_digest(root):
         raise ProjectError("context cursor belongs to another project")
     if not isinstance(value.get("snapshot"), str) or len(value["snapshot"]) != 64:
@@ -69,6 +81,23 @@ def decode(root: Path, token: str) -> dict[str, Any]:
         raise ProjectError("invalid context cursor scope")
     if type(value.get("offset")) is not int or value["offset"] < 0:
         raise ProjectError("invalid context cursor offset")
+    if version == 1:
+        value["resultSession"] = None
+        value["focusRoot"] = "."
+    else:
+        session = value.get("resultSession")
+        focus_root = value.get("focusRoot")
+        if not isinstance(session, str) or re.fullmatch(r"[0-9a-f]{32}", session) is None:
+            raise ProjectError("invalid context cursor result session")
+        if (
+            not isinstance(focus_root, str)
+            or not focus_root
+            or len(focus_root) > 1024
+            or "\\" in focus_root
+            or focus_root.startswith("/")
+            or any(part in {"", ".."} for part in focus_root.split("/"))
+        ):
+            raise ProjectError("invalid context cursor focus root")
     return value
 
 

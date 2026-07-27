@@ -1,6 +1,6 @@
 """HelloDev standalone application core."""
 
-__version__ = "0.16.0"
+__version__ = "0.19.6"
 
 from .application import ProjectClient
 

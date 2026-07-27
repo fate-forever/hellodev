@@ -90,8 +90,10 @@ const render = (data) => {
   $("health-text").textContent = "本机 · 只读";
   $("updated-at").textContent = `更新 ${data.generatedAt}`;
   $("phase").textContent = now.phase;
-  $("work-item-id").textContent = now.workItem?.id || "未绑定";
-  $("task-counts").textContent = `${data.tasks.localCount} / ${data.tasks.trellisActiveCount} / ${data.tasks.linkedWorkItemCount}`;
+  const currentTask = data.currentTask;
+  $("current-task-title").textContent = currentTask?.title || "尚未选择任务";
+  $("current-task-detail").textContent = currentTask?.id ? `${currentTask.backend} · ${currentTask.nativeRef} · ${data.projectMode.mode}` : (currentTask?.candidate ? `可激活 ${currentTask.candidate}` : `使用 do begin 开始 · ${data.projectMode.mode}`);
+  $("current-task-state").textContent = currentTask?.state || "unbound";
   $("tokens").textContent = data.usage.totalTokens ?? "unavailable";
   clear("next-action");
   $("next-action").append(action(now.next.reason, now.next.command, `${now.next.reasonCode} · ${now.next.suggestedLevel}`));
@@ -136,7 +138,7 @@ const render = (data) => {
   clear("environment-core");
   const diagnostics = data.diagnostics;
   const contextLast = data.contextPlane.lastQuery;
-  $("environment-core").append(metric("Core", diagnostics.core.version), metric("Mode", diagnostics.core.mode), metric("Distribution", diagnostics.core.distributionState), metric("Schema", data.schemaVersion), metric("Context backend", data.contextPlane.backend), metric("Last context", contextLast?.state || "none"), metric("Context files", contextLast?.metrics?.scannedFileCount ?? 0), metric("Context bytes", contextLast?.metrics?.returnedTextBytes ?? 0), metric("Optional accelerator", diagnostics.repositoryTools.suggestedProvider));
+  $("environment-core").append(metric("Core", diagnostics.core.version), metric("Mode", diagnostics.core.mode), metric("Distribution", diagnostics.core.distributionState), metric("Schema", data.schemaVersion), metric("Daily namespace", data.facade.dailyNamespace), metric("Facade", data.facade.state), metric("Routed Trellis", data.facade.routedTrellisReceiptCount), metric("Escape hatches", data.facade.observableEscapeHatchCount), metric("Local tasks", data.tasks.localCount), metric("Trellis tasks", data.tasks.trellisActiveCount), metric("WorkItems", data.tasks.linkedWorkItemCount), metric("Context backend", data.contextPlane.backend), metric("Last context", contextLast?.state || "none"), metric("Context files", contextLast?.metrics?.scannedFileCount ?? 0), metric("Context bytes", contextLast?.metrics?.returnedTextBytes ?? 0), metric("Optional accelerator", diagnostics.repositoryTools.suggestedProvider));
   [["codex", "codex-checks"], ["cursor", "cursor-checks"]].forEach(([host, target]) => {
     clear(target);
     diagnostics.hosts[host].checks.forEach((item) => $(target).append(row(item.name, "project-scoped compatibility check", item.state)));
@@ -147,8 +149,10 @@ const render = (data) => {
   if (!diagnostics.fixes.length) $("diagnostic-fixes").append(empty("当前没有确定性修复建议"));
 
   const cycle = data.efficiencyCycle;
+  const verification = data.verification;
+  const trellisExecution = data.trellisExecution;
   clear("efficiency-metrics");
-  $("efficiency-metrics").append(metric("Cycles", cycle.cycleCount), metric("Progress", `${cycle.pendingReceiptCount}/${cycle.windowSize}`), metric("Remaining", cycle.remainingUntilNextCycle ?? "unavailable"), metric("Usage trust", data.usage.displayBasis));
+  $("efficiency-metrics").append(metric("Usage", data.usage.state), metric("Trusted turns", cycle.pendingReceiptCount), metric("Next reflection", cycle.remainingUntilNextCycle), metric("Cycles", cycle.cycleCount), metric("Changed files", data.changeSet.changedFileCount), metric("Code/docs", `${data.changeSet.scopeCounts.code}/${data.changeSet.scopeCounts.docs}`), metric("Trellis profile", trellisExecution.profile || "n/a"), metric("Adaptive check", trellisExecution.verificationState), metric("Required level", trellisExecution.requiredLevel || "n/a"), metric("Reusable checks", verification.reusableSuccessCount), metric("Pending verify", verification.pendingSessionCount), metric("T0/T1/T2", `${verification.levels.T0}/${verification.levels.T1}/${verification.levels.T2}`), metric("Avoided ms", verification.estimatedAvoidedDurationMs), metric("Evidence trust", verification.sourceTrust));
   clear("efficiency-cycle");
   if (cycle.latest) {
     $("efficiency-cycle").append(row("Average tokens", `${cycle.latest.receiptCount} completed turns`, cycle.latest.metrics.averageTokens), action("Recommendation", cycle.latest.recommendation.command, cycle.latest.recommendation.reasonCode));

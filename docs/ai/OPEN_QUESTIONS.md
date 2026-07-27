@@ -1,9 +1,82 @@
 # HelloDev Core open questions
 
-Last refreshed: 2026-07-22
-Scope: locally complete HelloDev 0.16.0 Context Plane
+Last refreshed: 2026-07-27
+Scope: HelloDev 0.19.6 adaptive Trellis execution
 
 Release status, artifact hashes, and immutable evidence belong in the root development ledger and the versioned release report. The checks below are the reusable gate for any source change; this orientation file does not duplicate mutable artifact hashes.
+
+## 0.19.6 decisions and open boundaries
+
+- `quick/standard/strict` is a deterministic safety policy, not a learned risk model. P0/P1, deletion, more than ten changed files, high-risk declared scope, and invalid metadata select strict; docs-only bounded changes select quick; other work selects standard.
+- Command discovery is advisory and structured: project `scripts/verify.py` wins, then a Python test shape, then a declared package-manager test script. HelloDev does not execute the command or infer success from stdout.
+- Exact success reuse is bound to command hash, scope snapshot, WorkItem, and verification level. It remains host-asserted intermediate evidence and cannot satisfy a Trellis gate.
+- The first version does not parse PRD/spec prose, dependency graphs, changed raw paths, flaky-test history, or CI configuration. These are relevant but non-blocking evaluation areas; adding them must preserve privacy and deterministic behavior.
+- Real-project time saved by the adaptive policy remains unmeasured. The product may report exact avoided duration from a reused host receipt, but it must not claim a universal efficiency percentage.
+
+## 0.19.5 decisions and open boundaries
+
+- Trellis task/spec/gate remains repository authority. HelloDev owns the daily command facade and pointer/projection state; it does not duplicate Trellis documents or auto-drive both state machines.
+- Cursor/Antigravity rules and MCP instructions prohibit routine direct Trellis use. Direct native access remains available only as an advanced compatibility escape hatch when HelloDev reports an unsupported operation.
+- `trellis-continue` is not a second recovery path in HelloDev guidance; `hellodev resume` is canonical. Existing upstream commands are not removed or patched.
+- Escape-hatch counts include only generic Trellis commands executed through HelloDev and represented by typed receipts. External shell/IDE Trellis calls cannot be observed by local Core and remain explicitly unavailable.
+- The facade is guidance plus deterministic HelloDev routing, not host sandbox enforcement. A host can still ignore project rules; stronger enforcement would require host-native policy support and separate evaluation.
+
+## 0.19.4 decisions and open boundaries
+
+- Package focus is explicit: a full normalized package identity may focus a query; cwd, descriptions and ordinary substrings may not. Dependency-graph and semantic ownership inference remain out of scope.
+- Request snapshot reuse is synchronous and read-only. Write intents deliberately start outside the session so post-mutation state cannot reuse stale inventory.
+- Empty ChangeSet/verification state may skip repository inventory. Once a baseline or evidence record exists, current-snapshot validation remains mandatory and fail-closed.
+- Automatic usage synchronization batches persistence but does not weaken receipt validation. The selected turns are parsed before one atomic append; a store conflict rejects the append rather than partially committing it.
+- The context budget is a conservative byte envelope over the complete MCP response. It is not a precise host-model token cap, and Agents should not mechanically exhaust continuations.
+- Real cross-host latency/token savings remain an evaluation question. 0.19.4 claims bounded local work and tested recall/call-count properties, not a universal percentage speedup.
+
+## 0.19.3 decisions and open boundaries
+
+- Antigravity uses the documented workspace `.agents/mcp_config.json` contract and Markdown rules under `.agents/rules/`. HelloDev does not mutate global `~/.gemini` configuration or invent undocumented rule frontmatter.
+- Antigravity onboarding records the selected host so automatic `open`/`do` synchronization cannot import an unrelated Codex rollout. Without a trusted Host SDK usage receipt, Antigravity token and subagent telemetry is `unavailable`, never estimated.
+- Trellis has no verified Antigravity-specific initialization flag in the current integration contract. HelloDev therefore uses host-neutral `trellis init --yes` and does not claim deeper native integration.
+- Rule activation remains a host UI/workspace setting. HelloDev writes guidance and reports that review/reload is required; it does not automate the Antigravity UI.
+
+## 0.19.2 decisions and open boundaries
+
+- Focus selection is deterministic and fail-closed: nested package/worktree first, then exactly one query-matching package marker, otherwise project root. Dependency-graph and semantic ownership inference remain out of scope.
+- Result sessions are process-local accelerators, not durable truth. TTL/count/result/byte eviction or process restart reconstructs from the cursor's root-bound focus and snapshot contract.
+- Continuation reuse validates cached file/directory metadata without rescanning/reranking. This preserves stale detection for existing files and directory membership changes; it does not claim filesystem transactions or immunity to adversarial same-metadata rewrites.
+- The 1200-token option remains a conservative four-UTF-8-byte envelope unless the outer MCP result meter has a compatible tokenizer. Context Plane does not claim an exact model-token cap.
+- Agents should consume the first bounded page and switch to native precise reads when sufficient. Automatically exhausting every continuation remains intentionally unsupported behavior.
+
+## 0.19.0 decisions and open boundaries
+
+- Trellis-native gate completion performed outside HelloDev has no verified stable artifact contract. `unlinkedDetection` is therefore `unavailable`; arbitrary logs and task text are not evidence.
+- T0/T1 default to conservative `code` scope; T2 defaults to `project`. Semantic command equivalence and dependency-graph impact analysis remain future work.
+- Context Plane bounded scans cannot establish reusable scoped evidence and fail closed.
+- Verification sessions are the default continuation, while the 0.18 `--snapshot` path remains a compatibility surface.
+
+Final 0.19 acceptance completed with 216 fast and 256 full tests, two expected environment skips, Python compilation, Dashboard JavaScript syntax and an isolated wheel smoke covering begin, scoped verification session, record/reuse, Dashboard schema 15 and six MCP tools. No publication or installation was performed.
+
+## 0.18.0 historical decisions
+
+1. **Resolved:** gate/test evidence now includes the current native repository snapshot, and current projection recomputes the receipt binding. Source mutation invalidates old evidence without deleting history. _Implemented and regression-tested._
+2. `do verify` records host-asserted outcomes and durations only after the host actually runs the command. It does not execute arbitrary commands, capture stdout/stderr, or claim runtime attestation. _Fixed security decision._
+3. Reuse requires exact level, command SHA-256, repository snapshot, WorkItem, successful outcome and valid store schema. A failed exact tuple returns `blocked-unchanged-failure`. Semantic command equivalence is outside deterministic Core scope, so differently spelled equivalent commands are intentionally not deduplicated. _Fixed initial contract plus relevant limitation._
+4. T0/T1/T2 are verification-planning levels, not Trellis authority levels. A host-asserted T2 record cannot replace a typed Trellis gate/test receipt or weaken `require-current-gate`. _Fixed authority decision._
+5. The first version uses the full bounded repository snapshot for conservative invalidation. Targeted dependency graphs and per-package impact mapping are relevant but non-blocking follow-ups after real canary data. _Fixed MVP scope._
+6. **Relevant but non-blocking:** flaky retry policy, test-command semantic normalization, path-level impact maps and independently measured time savings require real-project data. Core will report truthful reuse/saved-duration counters without claiming a percentage improvement.
+7. **Relevant follow-up:** a plan is non-persistent and recording accepts the exact repository snapshot returned by it. Switching WorkItems between host execution and recording is not independently attested; records remain advisory and cannot satisfy Trellis gates. A future plan-binding nonce may tighten this without storing raw commands.
+8. **Background:** executing tests inside HelloDev, arbitrary shell allowlists, autonomous CI control, Dashboard action endpoints and external result ingestion remain out of scope.
+
+Local acceptance completed with 209 fast and 249 full tests, two expected environment skips, Python compilation, Dashboard JavaScript syntax, and an isolated offline wheel smoke covering progressive verification, mutation invalidation and Dashboard schema 14. No push, tag, release snapshot, bundle, PyPI upload, global installation, plugin action or upstream modification was performed.
+
+## 0.17.0 implemented decisions and open boundaries
+
+1. `do begin` is a deterministic convenience workflow, not a second task database or workflow engine. It creates/selects a native task, stores only a WorkItem pointer, advances the existing lifecycle, and returns one Context Plan. _Fixed compatibility decision._
+2. Existing `task`, `work activate`, lifecycle, Trellis escape-hatch and six MCP tools remain supported. `currentTask` is an additive projection; internal local/Trellis/WorkItem counts remain available for diagnostics. _Fixed migration decision._
+3. Trellis task creation remains a write requiring the existing one-time approval. Multiple active Trellis tasks require explicit selection. Memory cannot choose or authorize a task. _Fixed safety decision._
+4. Core and bundle share `onboard`, but Core does not imply bundled components. It may write project-scoped host files after conflict preflight and may only preserve an already configured external Nocturne command. _Fixed distribution decision._
+5. Control Center 2.3 remains copy-only. Executable Dashboard actions, approval input, raw memory/source display and global configuration remain out of scope. _Fixed UI boundary._
+6. **Relevant but non-blocking:** independently measured task-start latency/token reduction, richer acceptance criteria structure, and a signed multi-platform 0.17 bundle remain later work. No claim is made before evidence exists.
+
+Local acceptance completed with 203 fast and 243 full tests, two expected environment skips, compile/JavaScript checks, and an isolated offline wheel smoke covering Core onboarding, unified begin, currentTask and Dashboard schema 13. No 0.17.0 source push, tag, GitHub Release, release snapshot, platform bundle, PyPI upload, global installation, plugin action or upstream modification has been performed.
 
 ## 0.16.0 implemented decisions and open boundaries
 
@@ -16,7 +89,7 @@ Release status, artifact hashes, and immutable evidence belong in the root devel
 7. **Relevant but non-blocking:** precise `.gitignore` parity without an external parser, semantic/AST ranking, PDF/image extraction, and independently measured cross-host token savings remain later evaluation work. Safe deterministic fallbacks are sufficient for 0.16.0.
 8. **Background:** shell/job orchestration, write automation and external provider self-management remain deliberately deferred.
 
-Local acceptance completed with 196 fast and 236 full tests, two expected environment skips, compile/JavaScript checks, and a disposable offline wheel smoke covering `open/status` plus cursor pagination without overlap. This is source completion evidence only: no release snapshot, bundle, PyPI upload, GitHub push, global installation or host configuration change was performed.
+Local acceptance completed with 196 fast and 236 full tests, two expected environment skips, compile/JavaScript checks, and a disposable offline wheel smoke covering `open/status` plus cursor pagination without overlap. The HelloDev-only source was pushed to GitHub and the corrective Windows CI run passed at commit `5efc24db182b1afa471defb93ccfc97dd1a7a00a`. No 0.16.0 release snapshot, platform bundle, PyPI upload, global installation or host configuration change has been performed. Six CI annotations about actions targeting deprecated Node.js 20 are **Relevant but non-blocking** maintenance work; update the action majors before GitHub removes compatibility.
 
 ## 0.14.1 implemented decisions and release result
 
@@ -65,7 +138,7 @@ Local acceptance completed with 196 fast and 236 full tests, two expected enviro
 
 ## Fixed 0.11.2 efficiency-cycle decisions
 
-1. `open` opportunistically syncs only when Desktop exposes `CODEX_THREAD_ID` and selected project overlaps the process working directory; failures are compact/unavailable and do not block daily work.
+1. `open` and daily `do` opportunistically sync completed Codex turns. An environment thread must own the selected root; without one, HelloDev discovers the most-recent safe rollout whose recorded cwd overlaps the root. Failures are compact/unavailable and do not block daily work; `next/status/resume` remain read-only.
 2. `usage sync` backfills oldest unrecorded completed turns, is bounded to 1–500 per call, skips unavailable individual turns without inventing values, and never includes the current incomplete turn.
 3. A cycle is exactly 20 `runtime-observed + exact` receipts in stable insertion order. Windows do not overlap or roll. Explicit `asserted-runtime` imports and operator reports never count.
 4. ReflectionCycle is an additive, locked, hash-bound sidecar. Existing windows are rebound to their receipt hashes on every reconcile; tamper/history replacement fails closed.
@@ -76,7 +149,7 @@ Local acceptance completed with 196 fast and 236 full tests, two expected enviro
 
 ## Fixed 0.11.1 usage decisions
 
-1. `usage collect` reads a bounded local Codex rollout. Automatic Desktop selection uses `CODEX_THREAD_ID` plus the canonical Codex home; explicit `--thread-id` / `--codex-home` / `--session` are caller-selected imports.
+1. `usage collect` reads a bounded local Codex rollout. Automatic Desktop selection uses `CODEX_THREAD_ID` when available and root-matching, otherwise project-bound recent-rollout discovery in the canonical Codex home. Explicit `--thread-id` / `--codex-home` / `--session` are caller-selected imports.
 2. It reports only the latest already-completed turn. The response currently being generated has no final `task_complete` boundary and cannot be assigned a truthful final value until a later turn collects it.
 3. Automatic Desktop success is `codex-runtime` / `runtime-observed`; explicit selection is `codex-runtime-import` / `asserted-runtime`. Both use `measurement=exact`, `attestation=none`, and `estimated=false`; neither is provider-signed, provider-attested, or provider-verified.
 4. Root usage is a cumulative line-bounded interval delta; subagent usage includes only recursively discoverable descendants with matching start/complete intervals, bounded to 32 threads.

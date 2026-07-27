@@ -1,4 +1,4 @@
-"""Read-only Codex/Cursor MCP integration rendering and validation."""
+"""Read-only Codex/Cursor/Antigravity MCP integration rendering and validation."""
 
 from __future__ import annotations
 
@@ -12,7 +12,7 @@ from .mcp_gateway import INSTALL_HINT, TOOL_NAMES, create_server, sdk_available
 from .project import ProjectError, resolve_root
 
 
-Host = Literal["codex", "cursor"]
+Host = Literal["antigravity", "codex", "cursor"]
 
 
 def _launch(root: Path) -> tuple[str, list[str], str]:
@@ -49,22 +49,36 @@ def _cursor_snippet(command: str, arguments: list[str]) -> str:
     ) + "\n"
 
 
+def _antigravity_snippet(root: Path, command: str, arguments: list[str]) -> str:
+    return json.dumps(
+        {"mcpServers": {"hellodev": {"command": command, "args": arguments, "cwd": str(root)}}},
+        ensure_ascii=False,
+        indent=2,
+    ) + "\n"
+
+
 def show(root: str | Path, host: Host | str) -> dict[str, Any]:
     selected = resolve_root(root)
-    if host not in {"codex", "cursor"}:
-        raise ProjectError("integration host must be codex or cursor")
+    if host not in {"antigravity", "codex", "cursor"}:
+        raise ProjectError("integration host must be antigravity, codex, or cursor")
     command, arguments, source = _launch(selected)
-    snippet = (
-        _codex_snippet(selected, command, arguments)
-        if host == "codex"
-        else _cursor_snippet(command, arguments)
-    )
+    if host == "codex":
+        snippet = _codex_snippet(selected, command, arguments)
+    elif host == "antigravity":
+        snippet = _antigravity_snippet(selected, command, arguments)
+    else:
+        snippet = _cursor_snippet(command, arguments)
+    suggested_path = {
+        "antigravity": ".agents/mcp_config.json",
+        "codex": ".codex/config.toml",
+        "cursor": ".cursor/mcp.json",
+    }[host]
     return {
         "schemaVersion": 1,
         "host": host,
         "root": str(selected),
         "scope": "project",
-        "suggestedPath": ".codex/config.toml" if host == "codex" else ".cursor/mcp.json",
+        "suggestedPath": suggested_path,
         "format": "toml" if host == "codex" else "json",
         "launchSource": source,
         "command": command,

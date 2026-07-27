@@ -1,7 +1,7 @@
 # HelloDev Core codebase map
 
-Last refreshed: 2026-07-22
-Scope: locally complete HelloDev 0.16.0 Context Plane
+Last refreshed: 2026-07-27
+Scope: HelloDev 0.19.6 adaptive Trellis execution
 
 ## Source and runtime boundaries
 
@@ -16,6 +16,73 @@ Scope: locally complete HelloDev 0.16.0 Context Plane
 | `outputs/hellodev` | Legacy Codex-plugin reference | Frozen evidence, never an active build source. |
 | Versioned release copies | Immutable source/wheel evidence | Must remain separate from source and installed caches. |
 
+## 0.19.6 adaptive Trellis execution map
+
+- `trellis_execution.py` bounds the complete current `task.json` read to 64 KiB, consumes only `priority`, `scope`, and `status` after parsing, combines them with hash-only ChangeSet counts, and selects `quick`, `standard`, or `strict`. Unsafe, malformed, or oversized metadata fails closed to strict. _Fact - full source read._
+- `verification.inspect()` provides a non-persistent exact command/scope/snapshot lookup. `resume.next_decision()` recommends one host-run verification before `do check`, reuses unchanged success, and refuses blind reruns of unchanged failure. _Fact - full source read and focused behavior test._
+- `application.py`, `resume.py`, `dashboard.py`, and `facade.py` expose the bounded policy projection without adding an MCP tool or daily command family. Compact status omits the full projection and remains bounded. _Fact - full source read and focused contract test._
+- The layer does not execute tests, write `.trellis/`, copy task/PRD/spec bodies, create Trellis gate evidence, or weaken approval and final native validation. _Fact - implementation boundary and negative tests._
+
+## 0.19.5 unified facade implementation map
+
+- `facade.py` derives a read-only daily namespace and counts routed Trellis intent receipts versus HelloDev-observed generic Trellis escape-hatch receipts. External direct CLI use remains explicitly unavailable rather than inferred. _Implemented privacy/observability boundary._
+- `resume.py` re-enters one finished native task through `do begin`; `gates.py` sends a Trellis-backed strict gate recovery through `do validate`. Internal WorkItem and gate-status commands remain advanced compatibility surfaces. _Implemented daily-command convergence._
+- `onboarding.py` and `mcp_gateway.py` instruct Cursor, Antigravity and MCP hosts to keep task/lifecycle/validation/recovery behind HelloDev, replace `trellis-continue` with `hellodev resume`, and use direct Trellis only as a disclosed unsupported-operation escape hatch. _Implemented host guidance._
+- `application.py`, `resume.py`, `dashboard.py` and Control Center 2.6 project the facade without executing adapters or exposing native argv. _Implemented additive diagnostics._
+
+## 0.19.4 end-to-end efficiency implementation map
+
+- `context_runtime/planner.py` permits subpackage focus only for an explicit full package identity. Cross-package natural-language queries remain rooted at the project and rank declarations/executable code above repetitive comments. _Implemented and cross-package recall-tested._
+- `context_runtime/native.py` provides a request-scoped immutable snapshot session; `application.py` shares it across synchronous read projections while write intents retain fresh snapshots. _Implemented and call-count tested._
+- `changesets.py` and `verification.py` avoid repository inventory for absent baselines/records. Existing baseline and verification evidence retain strict current-snapshot validation. _Implemented lazy empty-state path._
+- `governance.py` appends Codex runtime usage receipts through one lock/load/atomic write per sync batch; `usage_collector.py` still parses each completed turn independently and preserves fail-closed collection, idempotency and twenty-turn reflection. _Implemented and batch-write tested._
+- `briefs.py`, `mcp_gateway.py`, and `bounded_results.py` budget the complete serialized MCP response envelope and retain one structured continuation. _Implemented and full-payload byte-tested._
+
+## 0.19.3 Antigravity host adaptation map
+
+- `integrations.py` renders the official project-level `.agents/mcp_config.json` stdio shape with exact current-Python command, arguments and cwd. `onboarding.py` merges that config and writes a bounded Markdown rule under `.agents/rules/hellodev.md`; conflicts fail before HelloDev project initialization. _Implemented and idempotency-tested._
+- `project.py` persists the explicitly selected host as backward-compatible config metadata. `application.py` and `cli.py` automatically collect Codex rollout usage only for Codex or legacy projects; Cursor/Antigravity/none return truthful unavailable telemetry unless a separate trusted Host SDK path supplies it. _Implemented and no-Codex-attribution tested._
+- `repository_tools.py`, CLI integration choices and Dashboard host diagnostics include Antigravity while preserving exactly six MCP tools. Trellis initialization remains `trellis init --yes` because no upstream Antigravity flag is assumed. _Implemented compatibility boundary._
+- No user-level `~/.gemini` configuration, plugin state, global installation, upstream source or data plane is modified. _Fixed scope boundary._
+
+## 0.19.2 Context Plane efficiency implementation map
+
+- `context_runtime/planner.py` selects a root-bound focus from the current nested package/worktree or one unique query-matching package marker. Ambiguous/no match falls back to the selected project root. Result paths remain project-relative. _Implemented and focus-tested._
+- Partial first pages create bounded process-memory ranked result sessions. Version-2 cursors bind the project, focus, snapshot, query, scope, offset and session; version-1 cursors remain readable. Continuation hits validate cached metadata and avoid `snapshot()` plus `_rank()` entirely. _Implemented and call-count tested._
+- `context_runtime/native.py` caches safe file/directory metadata markers. A hot unchanged snapshot no longer reruns `_candidates()`; mutation, deletion, symlink replacement or directory identity change invalidates reuse. _Implemented with stale regression preserved._
+- Sessions enforce TTL, count, per-session result/byte and aggregate byte bounds. Cache loss or process restart reconstructs strictly; raw query/path/source/session data remains process-local and is not persisted under `.hellodev/`. _Implemented privacy boundary._
+
+Validation: focused compatibility passed 50 tests; fast passed 226 tests and full passed 266 tests with two expected environment skips. Python compilation and Dashboard JavaScript syntax passed. Local package continuation measured about 13 ms; forced broad-root continuation measured about 422 ms; adaptive broad-root-to-package continuation measured about 16 ms. A final disposable 245,191-byte wheel installed offline, reported 0.19.2, opened a clean project and exposed six tool names; SHA-256 was `140c516413db912ea2a92fde52e086e9023a81c315e462e5aed79c8262fb6782`. The optional MCP SDK was unavailable in the current interpreter, so real stdio smoke remained an expected environment skip. _Local acceptance fact, not a cross-host performance claim._
+
+## 0.19.1 trusted Codex telemetry implementation map
+
+- `usage_collector.py` now selects an automatic runtime by `CODEX_THREAD_ID` when available, otherwise by the most-recent safe rollout whose recorded cwd overlaps the selected HelloDev root. Explicit thread/session/home selection remains an asserted import. _Implemented and project-binding tested._
+- Token events are parsed as structured JSON and validate the required cumulative counters while tolerating additive host metadata such as `cache_write_input_tokens`. Count regressions, inconsistent totals, unsafe paths and incomplete descendant sessions still fail closed. _Implemented against current real Codex Desktop metadata and fixtures._
+- `open` and daily `do` backfill completed turns idempotently; `next/status/resume` remain read-only. Automatic results expose `selectionMode`, trust, exactness, recorded/skipped counts and `remainingUntilNextCycle`; unavailable hosts remain explicit and are never estimated. _Implemented and compatibility-tested._
+- The existing fixed twenty-turn ReflectionCycle remains deterministic, non-effective and advisory. Only automatic `runtime-observed + exact` receipts enter it; no transcript, runtime path, thread/turn/subagent id or raw event is persisted. _Preserved privacy and policy boundary._
+
+Validation for 0.19.1: focused telemetry/version/dashboard regressions passed 63 tests. Fast passed 219 tests and final full passed 259 tests with two expected environment skips; Python compilation and Dashboard JavaScript syntax passed. The parser read the current local Codex rollout with additive metadata and found 164 completed turns, 5,640 usage snapshots and 169 subagent activity events. A disposable 241,681-byte wheel installed offline without dependencies, reported 0.19.1, opened a clean project with truthful unavailable usage, and exposed exactly six MCP tools; SHA-256 was `111ba44eb195ea3e3dc3ecfc7230261742daab301d1f345b4b3bef09ce71c71d`. Temporary artifacts were removed. _Historical local acceptance fact._
+
+## 0.19.0 adaptive-orchestration implementation map
+
+- `workflow_projection.py` derives `local`, `trellis-native`, or `hybrid-recovery`. A valid Trellis WorkItem makes native task/spec/gate authoritative; HelloDev lifecycle remains a labelled projection and never mutates Trellis from status. _Implemented and mode-tested._
+- `changesets.py` reuses the native Context Plane inventory and persists path/content hashes plus code/docs classification only. `do begin` captures the baseline; status/check/finish/resume expose bounded counts without raw paths or source. _Implemented and privacy-tested._
+- `verification.py` schema 2 keeps schema-1 read compatibility, adds code/docs/project scope identities and persistent one-hour sessions, and rejects stale scope, WorkItem switching, expiry, replay and contradictory evidence. T0/T1 default to code; T2 defaults to project. _Implemented and compatibility-tested._
+- Host-asserted intermediate verification remains advisory. It must not create Trellis gate evidence, authorize actions, or bypass `finishPolicy`; typed Trellis gate/test receipts remain the final authority. _Fixed safety boundary._
+- Existing daily commands, exactly six MCP tools, stores, profiles, Saga/WAL/policy, Context Plane and upstream adapters remain compatible. `next/resume` surface one pending verification session before ordinary lifecycle advice. Dashboard schema 15 / Control Center 2.5 remains GET/copy-only. _Implemented compatibility boundary._
+
+Validation: fast passed 216 tests and full passed 256 tests with two expected environment skips; Python compilation and Dashboard JavaScript syntax passed. A disposable wheel installed in a fresh venv, reported 0.19.0, exercised begin/scoped-session/record/reuse, Dashboard schema 15 and exactly six MCP tools, then was removed. No publication, release artifact, global installation or upstream modification was performed. _Local acceptance fact._
+
+## 0.17.0 usability-convergence implementation map
+
+- `experience.py` owns the daily `currentTask` projection and the deterministic 1200-token Context Plan. It reads pointer/count state but does not read repository source or persist the goal. _Implemented and verified._
+- `routing.py`, `application.py`, and `cli.py` add `do begin`: local projects create one Markdown task; Trellis projects select one active task or use the existing prepare/approve task-create path; ambiguous selection fails closed. Existing lifecycle/task/work commands remain available. _Implemented; focused tests passed._
+- `onboarding.py` now supports Core and bundle through one project-scoped command. Core reuses an existing external Nocturne configuration or reports `configuration-required`; it never invents an executable or modifies global host configuration. _Implemented; focused tests passed._
+- `dashboard.py` schema 13 and Control Center 2.3 show one current task by default while retaining internal L/T/W counts under environment diagnostics. The server remains loopback, token-bound, GET/copy-only. _Implemented and verified._
+- Package/runtime metadata is aligned to 0.17.0. No release snapshot, bundle, PyPI upload, tag, GitHub push, global install or upstream-source change is part of local completion. _Boundary._
+
+Validation: the focused compatibility matrix passed 42 tests; fast passed 203 tests and full passed 243 tests with two expected environment skips; Python compilation and Dashboard JavaScript syntax passed. A disposable 229,209-byte wheel installed offline without dependencies, reported 0.17.0, completed Core `onboard -> open -> do begin -> status`, and returned Dashboard schema 13 with `readOnly=true`. Its SHA-256 was `ca669002f4c3a5666aa85e8a981de384dbcf691805c6b6f060d822b59e67f80d`; temporary artifacts were removed. _Local acceptance fact._
+
 ## 0.16.0 Context Plane implementation map
 
 - `context_runtime/contracts.py`, `native.py`, `planner.py`, and `cursor.py` own dependency-free, root-bound repository discovery, deterministic query/CJK-bigram ranking, budget-before-render composition, path/line/hash provenance and snapshot-bound continuation. Scans skip symlinks, sensitive files, dependency/build directories and enforce hard file/byte limits. _Implemented and verified._
@@ -25,7 +92,7 @@ Scope: locally complete HelloDev 0.16.0 Context Plane
 - `repository_tools.py` is compatibility/diagnostic only. Native Context Plane is complete without FastCtx; a discovered FastCtx command is marked an optional, non-required, non-recommended accelerator and receives no workflow, memory, write or shell authority. _Implemented boundary._
 - `bounded_results.py` continues to measure HelloDev MCP payloads. Context completeness is decided before annotation by the Context Plane cursor contract. _Implemented integration._
 
-Validation: fast 196 tests and full 236 tests passed with two expected environment skips; Python compilation and Dashboard JavaScript syntax passed. A disposable 225,263-byte wheel installed offline without dependencies, reported 0.16.0, completed empty-project `open/status`, and paged a five-file Context Plane query as 3 + 2 items with zero overlap. The temporary wheel SHA-256 was `2b130e8ac1b9e86def255167c4154956769ba48715360bcd16131c8d2208027e`; it was removed after validation and is not a release artifact.
+Validation: fast 196 tests and full 236 tests passed with two expected environment skips; Python compilation and Dashboard JavaScript syntax passed. A disposable 225,263-byte wheel installed offline without dependencies, reported 0.16.0, completed empty-project `open/status`, and paged a five-file Context Plane query as 3 + 2 items with zero overlap. The temporary wheel SHA-256 was `2b130e8ac1b9e86def255167c4154956769ba48715360bcd16131c8d2208027e`; it was removed after validation and is not a release artifact. The HelloDev-only GitHub mirror is now at corrective commit `5efc24db182b1afa471defb93ccfc97dd1a7a00a`; GitHub Actions run `29899673960` passed the Windows/Ubuntu fast matrix, full gate and official MCP SDK job after the zero-TTL Dashboard cache boundary was made deterministic. _Fact - independently verified from source/config, local gates and the public CI run._
 
 ## 0.13.0 retained baseline
 
@@ -288,7 +355,7 @@ Every policy event carries `previousEventSha256` and `eventSha256`. This detects
 ```text
 new Codex turn
   -> usage collect
-  -> CODEX_THREAD_ID automatic discovery, or caller-selected --thread-id / --session import
+  -> CODEX_THREAD_ID automatic selection, project-bound recent-rollout discovery, or caller-selected import
   -> parse only bounded session_meta/task_started/task_complete/token_count/sub_agent_activity events
   -> select the latest already-completed root turn
   -> cumulative root-interval delta
@@ -300,7 +367,7 @@ new Codex turn
   -> usage display still prefers runtime-observed, then asserted-runtime, then asserted
 ```
 
-The collector cannot finalize the response currently being generated because its `task_complete` boundary does not yet exist. It is intentionally a next-turn operation. Automatic Desktop discovery yields `sourceKind=codex-runtime`, `sourceTrust=runtime-observed`, `measurement=exact`, `attestation=none`, and `estimated=false`; explicit thread/home/session selection is instead `codex-runtime-import` / `asserted-runtime`. “Exact” is limited to deterministic deltas over completed Codex event metadata; it is not provider-signed, provider-attested, or provider-verified.
+The collector cannot finalize the response currently being generated because its `task_complete` boundary does not yet exist. It is intentionally a next-turn operation. Automatic Desktop selection uses an environment thread when it owns the selected root, otherwise a recent safe rollout whose recorded cwd overlaps that root. It yields `sourceKind=codex-runtime`, `sourceTrust=runtime-observed`, `measurement=exact`, `attestation=none`, and `estimated=false`; explicit thread/home/session selection is instead `codex-runtime-import` / `asserted-runtime`. “Exact” is limited to deterministic deltas over completed Codex event metadata; it is not provider-signed, provider-attested, or provider-verified.
 
 The stored usage record contains token counts, `completedAt`, trust metadata, and source/scope/receipt SHA-256 values. It never stores rollout text, prompt/response content, raw events, thread/turn/subagent ids, or session paths. No completed turn returns `unavailable` without writing. Missing or incomplete descendant sessions, missing interval snapshots, unsafe paths, invalid shapes, count regression, or same-turn conflicts fail closed without persisting partial usage. Repeated collection and sync are idempotent. Manual `usage record` remains `operator-report/asserted`; explicit runtime selection remains `asserted-runtime`. Neither can enter ReflectionCycle. Runtime receipts and cycles remain outside the 0.11.0 optimization schema for rollback compatibility.
 

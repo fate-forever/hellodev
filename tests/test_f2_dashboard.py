@@ -85,7 +85,7 @@ class F2DashboardTests(unittest.TestCase):
             ):
                 value = dashboard.snapshot(root, "instance", "2026-07-16T00:00:00Z")
 
-            self.assertEqual(value["schemaVersion"], 12)
+            self.assertEqual(value["schemaVersion"], 15)
             self.assertTrue(value["readOnly"])
             continuity = value["continuity"]
             self.assertTrue(continuity["readOnly"])
@@ -109,7 +109,7 @@ class F2DashboardTests(unittest.TestCase):
             self.assertEqual(value["recallInspector"]["history"][0]["receiptId"], recall_receipt["id"])
             self.assertFalse(value["recallInspector"]["rawResultExposed"])
             self.assertFalse(value["recallInspector"]["resultDetailsPersisted"])
-            self.assertEqual(value["diagnostics"]["core"]["version"], "0.16.0")
+            self.assertEqual(value["diagnostics"]["core"]["version"], "0.19.6")
             self.assertNotIn(private_lesson, json.dumps(value, ensure_ascii=False))
             self.assertNotIn("operator-only evidence", json.dumps(value, ensure_ascii=False))
             self.assertEqual(self._state_files(root), before)
@@ -292,7 +292,7 @@ class F2DashboardTests(unittest.TestCase):
             value = dashboard.snapshot(root, "instance", "2026-07-17T00:01:00Z")
 
             projected = value["efficiencyCycle"]
-            self.assertEqual(value["schemaVersion"], 12)
+            self.assertEqual(value["schemaVersion"], 15)
             self.assertTrue(projected["readOnly"])
             self.assertEqual(projected["windowSize"], 20)
             self.assertEqual(projected["cycleCount"], 1)
@@ -408,7 +408,7 @@ class F2DashboardTests(unittest.TestCase):
                 value = dashboard.snapshot(root, "instance", "2026-07-16T00:00:00Z")
 
             advanced = value["advanced"]
-            self.assertEqual(value["schemaVersion"], 12)
+            self.assertEqual(value["schemaVersion"], 15)
             self.assertEqual(advanced["host"]["completionCount"], 4)
             self.assertEqual(
                 set(advanced["host"]["latest"]),
@@ -515,7 +515,7 @@ class F2DashboardTests(unittest.TestCase):
         self.assertNotIn("<input", markup)
         self.assertIn("Canary Evaluation v2", markup)
         self.assertIn("Portable checkpoint", markup)
-        self.assertIn("HELLODEV 0.16.0", markup)
+        self.assertIn("HELLODEV 0.19.6", markup)
 
 
     def test_assets_are_interactive_bounded_and_copy_only(self) -> None:
@@ -538,7 +538,7 @@ class F2DashboardTests(unittest.TestCase):
         self.assertIn("Recall Inspector", markup)
         self.assertIn("严格优先级恢复", markup)
         self.assertIn("20-turn ReflectionCycle", markup)
-        self.assertIn("HELLODEV 0.16.0", markup)
+        self.assertIn("HELLODEV 0.19.6", markup)
         for forbidden in (
             "hellodev host complete", "hellodev policy stage", "hellodev policy canary",
             "hellodev policy commit", "hellodev policy revert",

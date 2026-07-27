@@ -6,6 +6,7 @@ from pathlib import Path
 from typing import Any, Literal
 
 from . import capabilities, contracts, lifecycle
+from .command_rendering import command_line
 from .project import ProjectError, ProjectPaths, load_config, write_json
 
 
@@ -97,6 +98,7 @@ def status(root: Path) -> dict[str, Any]:
             "validEvidence": [],
             "staleEvidenceCount": 0,
             "lifecycleConsistency": consistency,
+            "unlinkedDetection": "unavailable",
             "trellisMutationPerformed": False,
         }
     all_links = contracts.list_evidence_links(root, work_item["id"])
@@ -129,6 +131,7 @@ def status(root: Path) -> dict[str, Any]:
         ],
         "staleEvidenceCount": len(all_links) - len(valid_links),
         "lifecycleConsistency": consistency,
+        "unlinkedDetection": "unavailable",
         "trellisMutationPerformed": False,
     }
 
@@ -180,6 +183,8 @@ def finish_decision(root: Path) -> dict[str, Any]:
             "nextCommand": (
                 "hellodev capabilities refresh"
                 if projection["capabilityState"] != "fresh"
+                else command_line(root, "do", "validate", "--task", current["nativeRef"])
+                if current is not None and current.get("backend") == "trellis"
                 else "hellodev gate status"
             ),
             "executionPerformed": False,

@@ -25,8 +25,9 @@ class TaskContinuityTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as directory:
             root = self._finished_root(directory)
             decision = resume.next_decision(root)
-            self.assertEqual(decision["command"], "hellodev work activate --trellis-task 07-20-current")
-            self.assertEqual(decision["reasonCode"], "single-trellis-task-ready-for-new-cycle")
+            self.assertIn("do begin", decision["command"])
+            self.assertIn("--task 07-20-current", decision["command"])
+            self.assertEqual(decision["reasonCode"], "single-native-task-ready-for-unified-begin")
 
     def test_activate_preserves_finished_cycle_and_sets_current_pointer(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
@@ -41,7 +42,7 @@ class TaskContinuityTests(unittest.TestCase):
             self.assertEqual(contracts.current_work_item(root)["id"], result["workItem"]["id"])
             self.assertEqual(resume.next_decision(root)["command"], "hellodev do plan")
             state = dashboard.snapshot(root, "fixture", "2026-07-20T00:00:00Z")
-            self.assertEqual(state["schemaVersion"], 12)
+            self.assertEqual(state["schemaVersion"], 15)
             self.assertEqual(state["tasks"], {"localCount": 0, "trellisActiveCount": 1, "linkedWorkItemCount": 1})
 
     def test_activate_rejects_an_unfinished_lifecycle(self) -> None:

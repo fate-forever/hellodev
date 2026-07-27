@@ -24,6 +24,7 @@ MAX_COLLECTOR_LINES = 5_000_000
 MAX_COLLECTOR_EVENTS = 2_000_000
 MAX_SESSION_FILES = 100_000
 MAX_DISCOVERY_ENTRIES = 500_000
+MAX_HEADER_LINES = 32
 THREAD_ID_PATTERN = re.compile(r"[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}")
 USAGE_FIELDS = ("inputTokens", "cachedInputTokens", "outputTokens", "reasoningOutputTokens", "totalTokens")
 ZERO_USAGE = {field: 0 for field in USAGE_FIELDS}
@@ -44,19 +45,6 @@ SUBAGENT_EVENT_PATTERN = re.compile(
 TOKEN_EVENT_PATTERN = re.compile(
     rf'^\{{"timestamp":(?P<timestamp>{JSON_STRING}),"type":"event_msg","payload":\{{'
     rf'"type":"token_count",'
-)
-TOKEN_NULL_PATTERN = re.compile(
-    rf'^\{{"timestamp":(?P<timestamp>{JSON_STRING}),"type":"event_msg","payload":\{{'
-    rf'"type":"token_count","info":null(?:,|\}})'
-)
-TOKEN_USAGE_PATTERN = re.compile(
-    rf'^\{{"timestamp":(?P<timestamp>{JSON_STRING}),"type":"event_msg","payload":\{{'
-    rf'"type":"token_count","info":\{{"total_token_usage":\{{'
-    rf'"input_tokens":(?P<input>-?\d+),'
-    rf'"cached_input_tokens":(?P<cached>-?\d+),'
-    rf'"output_tokens":(?P<output>-?\d+),'
-    rf'"reasoning_output_tokens":(?P<reasoning>-?\d+),'
-    rf'"total_tokens":(?P<total>-?\d+)\}}(?:,|\}})'
 )
 
 
@@ -127,6 +115,37 @@ def _breakdown(value: Any, label: str) -> dict[str, int]:
     if result["inputTokens"] + result["outputTokens"] != result["totalTokens"]:
         raise ProjectError(f"invalid Codex {label} total usage")
     return result
+
+
+def _token_event(raw_line: str, line_number: int) -> tuple[datetime, dict[str, int]] | None:
+    try:
+        event = json.loads(raw_line)
+    except json.JSONDecodeError as error:
+        raise ProjectError(f"invalid Codex token metadata at line {line_number}") from error
+    if not isinstance(event, dict) or event.get("type") != "event_msg":
+        raise ProjectError(f"invalid Codex token event at line {line_number}")
+    payload = event.get("payload")
+    if not isinstance(payload, dict) or payload.get("type") != "token_count":
+        raise ProjectError(f"invalid Codex token payload at line {line_number}")
+    info = payload.get("info")
+    if info is None:
+        return None
+    if not isinstance(info, dict):
+        raise ProjectError(f"invalid Codex token info at line {line_number}")
+    total = info.get("total_token_usage")
+    if not isinstance(total, dict):
+        raise ProjectError(f"invalid Codex total token usage at line {line_number}")
+    required = {
+        "input_tokens",
+        "cached_input_tokens",
+        "output_tokens",
+        "reasoning_output_tokens",
+        "total_tokens",
+    }
+    if not required.issubset(total):
+        raise ProjectError(f"incomplete Codex total token usage at line {line_number}")
+    usage = _breakdown({key: total[key] for key in required}, "cumulative")
+    return _timestamp(event.get("timestamp"), "event"), usage
 
 
 def _add(left: dict[str, int], right: dict[str, int]) -> dict[str, int]:
@@ -226,6 +245,73 @@ def _find_session(thread: str, home: Path) -> Path:
     return unique[0]
 
 
+def _session_header(path: Path) -> dict[str, Any]:
+    """Read only the bounded rollout header needed for project discovery."""
+    safe = _safe_session_file(path)
+    before = safe.stat()
+    with safe.open("rb") as handle:
+        for line_number in range(1, MAX_HEADER_LINES + 1):
+            raw_bytes = handle.readline(MAX_LINE_BYTES + 1)
+            if not raw_bytes:
+                break
+            if len(raw_bytes) > MAX_LINE_BYTES:
+                raise ProjectError("Codex session header line exceeds the collector limit")
+            try:
+                raw_line = raw_bytes.decode("utf-8")
+            except UnicodeDecodeError as error:
+                raise ProjectError(f"invalid Codex session header encoding at line {line_number}") from error
+            match = SESSION_META_PATTERN.match(raw_line)
+            if match is None:
+                continue
+            cwd = Path(_json_string(match.group("cwd"), "session cwd")).expanduser()
+            if not cwd.is_absolute():
+                raise ProjectError("Codex session cwd is not absolute")
+            return {
+                "path": safe,
+                "threadId": _thread_id(_json_string(match.group("thread"), "session id"), "session"),
+                "cwd": cwd.resolve(),
+                "mtimeNs": before.st_mtime_ns,
+            }
+    raise ProjectError("Codex session metadata was not found in the bounded header")
+
+
+def _overlap_priority(root: Path, cwd: Path) -> int:
+    if root == cwd:
+        return 2
+    try:
+        root.relative_to(cwd)
+        return 1
+    except ValueError:
+        try:
+            cwd.relative_to(root)
+            return 1
+        except ValueError:
+            return 0
+
+
+def _discover_project_session(root: Path, home: Path) -> Path:
+    candidates: list[Path] = []
+    for directory_name in ("sessions", "archived_sessions"):
+        directory = home / directory_name
+        if not directory.exists() or not directory.is_dir() or _is_reparse(directory):
+            continue
+        for candidate in _bounded_session_files(directory):
+            if not candidate.name.startswith("rollout-") or candidate.suffix.casefold() != ".jsonl":
+                continue
+            candidates.append(candidate)
+    if not candidates:
+        raise ProjectError("no Codex session matches the HelloDev project")
+    candidates.sort(key=lambda item: (item.stat().st_mtime_ns, str(item)), reverse=True)
+    for candidate in candidates:
+        try:
+            header = _session_header(candidate)
+        except ProjectError:
+            continue
+        if _overlap_priority(root, header["cwd"]):
+            return header["path"]
+    raise ProjectError("no Codex session matches the HelloDev project")
+
+
 def _parse_session(
     path: Path,
     expected_thread: str | None = None,
@@ -323,22 +409,10 @@ def _parse_session(
                 continue
             if TOKEN_EVENT_PATTERN.match(raw_line) is not None:
                 _record_event(scan)
-                if TOKEN_NULL_PATTERN.match(raw_line) is not None:
+                parsed_token = _token_event(raw_line, line_number)
+                if parsed_token is None:
                     continue
-                token_match = TOKEN_USAGE_PATTERN.match(raw_line)
-                if token_match is None:
-                    raise ProjectError(f"unsupported Codex token metadata at line {line_number}")
-                observed_at = _timestamp(_json_string(token_match.group("timestamp"), "event timestamp"), "event")
-                usage = _breakdown(
-                    {
-                        "input_tokens": int(token_match.group("input")),
-                        "cached_input_tokens": int(token_match.group("cached")),
-                        "output_tokens": int(token_match.group("output")),
-                        "reasoning_output_tokens": int(token_match.group("reasoning")),
-                        "total_tokens": int(token_match.group("total")),
-                    },
-                    "cumulative",
-                )
+                observed_at, usage = parsed_token
                 if snapshots:
                     previous = snapshots[-1]["usage"]
                     if any(usage[field] < previous[field] for field in USAGE_FIELDS):
@@ -487,20 +561,34 @@ def _load_collection_context(
     session_file: str | Path | None = None,
     thread_id: str | None = None,
     codex_home: str | Path | None = None,
-) -> tuple[Path, Path, dict[str, Any], dict[str, Any], bool]:
+) -> tuple[Path, Path, dict[str, Any], dict[str, Any], str]:
     resolved_root = resolve_root(root)
     home = _codex_home(codex_home)
-    selected_thread = thread_id or os.environ.get("CODEX_THREAD_ID")
-    implicit_runtime_selection = session_file is None and thread_id is None and codex_home is None
+    environment_thread = os.environ.get("CODEX_THREAD_ID")
+    selected_thread = thread_id or environment_thread
+    automatic_selection = session_file is None and thread_id is None and codex_home is None
     if session_file is None:
         if selected_thread is None:
-            raise ProjectError("CODEX_THREAD_ID is unavailable; pass --thread-id or --session")
-        session_path = _find_session(selected_thread, home)
+            session_path = _discover_project_session(resolved_root, home)
+            selection_mode = "project-session-discovery" if codex_home is None else "explicit-home-discovery-import"
+        else:
+            session_path = _find_session(selected_thread, home)
+            if thread_id is not None:
+                selection_mode = "explicit-thread-import"
+            elif codex_home is not None:
+                selection_mode = "explicit-home-thread-import"
+            else:
+                selection_mode = "environment-thread"
     else:
         session_path = _safe_session_file(Path(session_file))
+        selection_mode = "explicit-session-import"
+    if automatic_selection:
+        header = _session_header(session_path)
+        if _overlap_priority(resolved_root, header["cwd"]) == 0:
+            raise ProjectError("Codex session cwd does not match the HelloDev project")
     budget: dict[str, Any] = {"paths": set(), "bytes": 0, "lines": 0, "events": 0}
     data = _parse_session(session_path, selected_thread, budget)
-    if implicit_runtime_selection:
+    if automatic_selection:
         cwd = Path(data["sessionCwd"]).expanduser()
         if not cwd.is_absolute():
             raise ProjectError("Codex session cwd is not absolute")
@@ -512,21 +600,21 @@ def _load_collection_context(
                 resolved_cwd.relative_to(resolved_root)
             except ValueError as error:
                 raise ProjectError("Codex session cwd does not match the HelloDev project") from error
-    return resolved_root, home, data, budget, implicit_runtime_selection
+    return resolved_root, home, data, budget, selection_mode
 
 
 def _scope_sha256(data: dict[str, Any], turn: dict[str, Any]) -> str:
     return _sha256(f"codex-turn:{data['threadId']}:{turn['turnId']}")
 
 
-def _collect_turn(
+def _turn_usage_record(
     resolved_root: Path,
     data: dict[str, Any],
     turn: dict[str, Any],
     index: dict[str, Path],
     budget: dict[str, Any],
     cache: dict[str, dict[str, Any]],
-    implicit_runtime_selection: bool,
+    selection_mode: str,
 ) -> dict[str, Any]:
     root_usage = _interval_usage(data, turn["startedLine"], turn["completedLine"], "root turn")
     subagent_usage, subagent_ids = _collect_descendants(
@@ -541,22 +629,25 @@ def _collect_turn(
         cache,
     )
     aggregate = _add(root_usage, subagent_usage)
-    source_kind = "codex-runtime" if implicit_runtime_selection else "codex-runtime-import"
-    source_trust = "runtime-observed" if implicit_runtime_selection else "asserted-runtime"
-    stored = governance.record_runtime_usage(
-        resolved_root,
-        input_tokens=aggregate["inputTokens"],
-        cached_input_tokens=aggregate["cachedInputTokens"],
-        output_tokens=aggregate["outputTokens"],
-        reasoning_output_tokens=aggregate["reasoningOutputTokens"],
-        subagent_tokens=subagent_usage["totalTokens"],
-        subagent_count=len(subagent_ids),
-        completed_at=turn["completedAtText"],
-        source_sha256=_sha256(f"codex-rollout:{resolved_root}:{data['threadId']}"),
-        scope_sha256=_scope_sha256(data, turn),
-        source_kind=source_kind,
-        source_trust=source_trust,
-    )
+    automatic_selection = selection_mode in {"environment-thread", "project-session-discovery"}
+    source_kind = "codex-runtime" if automatic_selection else "codex-runtime-import"
+    source_trust = "runtime-observed" if automatic_selection else "asserted-runtime"
+    return {
+        "input_tokens": aggregate["inputTokens"],
+        "cached_input_tokens": aggregate["cachedInputTokens"],
+        "output_tokens": aggregate["outputTokens"],
+        "reasoning_output_tokens": aggregate["reasoningOutputTokens"],
+        "subagent_tokens": subagent_usage["totalTokens"],
+        "subagent_count": len(subagent_ids),
+        "completed_at": turn["completedAtText"],
+        "source_sha256": _sha256(f"codex-rollout:{resolved_root}:{data['threadId']}"),
+        "scope_sha256": _scope_sha256(data, turn),
+        "source_kind": source_kind,
+        "source_trust": source_trust,
+    }
+
+
+def _usage_projection(stored: dict[str, Any], selection_mode: str) -> dict[str, Any]:
     record = stored["record"]
     return {
         "schemaVersion": COLLECTOR_SCHEMA_VERSION,
@@ -571,6 +662,7 @@ def _collect_turn(
         "breakdown": governance.usage_breakdown_projection(record),
         "sourceKind": record["sourceKind"],
         "sourceTrust": record["sourceTrust"],
+        "selectionMode": selection_mode,
         "accuracy": record["accuracy"],
         "measurement": record["measurement"],
         "attestation": record["attestation"],
@@ -582,6 +674,20 @@ def _collect_turn(
     }
 
 
+def _collect_turn(
+    resolved_root: Path,
+    data: dict[str, Any],
+    turn: dict[str, Any],
+    index: dict[str, Path],
+    budget: dict[str, Any],
+    cache: dict[str, dict[str, Any]],
+    selection_mode: str,
+) -> dict[str, Any]:
+    record = _turn_usage_record(resolved_root, data, turn, index, budget, cache, selection_mode)
+    stored = governance.record_runtime_usage(resolved_root, **record)
+    return _usage_projection(stored, selection_mode)
+
+
 def collect_previous_codex_turn(
     root: str | Path,
     *,
@@ -589,7 +695,7 @@ def collect_previous_codex_turn(
     thread_id: str | None = None,
     codex_home: str | Path | None = None,
 ) -> dict[str, Any]:
-    resolved_root, home, data, budget, implicit_runtime_selection = _load_collection_context(
+    resolved_root, home, data, budget, selection_mode = _load_collection_context(
         root,
         session_file=session_file,
         thread_id=thread_id,
@@ -609,9 +715,9 @@ def collect_previous_codex_turn(
     has_subagents = any(turn["startedLine"] < item["lineNumber"] <= turn["completedLine"] for item in data["activities"])
     index = _session_index(home) if has_subagents else {}
     value = _collect_turn(
-        resolved_root, data, turn, index, budget, {}, implicit_runtime_selection
+        resolved_root, data, turn, index, budget, {}, selection_mode
     )
-    if implicit_runtime_selection:
+    if selection_mode in {"environment-thread", "project-session-discovery"}:
         from . import efficiency_cycles
 
         value["reflectionCycle"] = efficiency_cycles.reconcile(resolved_root)
@@ -628,7 +734,7 @@ def sync_codex_usage(
 ) -> dict[str, Any]:
     if type(limit) is not int or not 1 <= limit <= 500:
         raise ProjectError("usage sync limit must be between 1 and 500")
-    resolved_root, home, data, budget, implicit_runtime_selection = _load_collection_context(
+    resolved_root, home, data, budget, selection_mode = _load_collection_context(
         root,
         session_file=session_file,
         thread_id=thread_id,
@@ -644,22 +750,25 @@ def sync_codex_usage(
     )
     index = _session_index(home) if has_subagents else {}
     cache: dict[str, dict[str, Any]] = {}
-    recorded = 0
-    existing = 0
     skipped = 0
-    latest: dict[str, Any] | None = None
+    candidates: list[dict[str, Any]] = []
     for turn in selected:
         try:
-            latest = _collect_turn(
-                resolved_root, data, turn, index, budget, cache, implicit_runtime_selection
-            )
+            candidates.append(_turn_usage_record(
+                resolved_root, data, turn, index, budget, cache, selection_mode
+            ))
         except ProjectError:
             skipped += 1
-            continue
+    stored_batch = governance.record_runtime_usage_batch(resolved_root, candidates)
+    projections = [_usage_projection(stored, selection_mode) for stored in stored_batch]
+    recorded = 0
+    existing = 0
+    for latest in projections:
         if latest["state"] == "recorded":
             recorded += 1
         else:
             existing += 1
+    latest = projections[-1] if projections else None
     from . import efficiency_cycles
 
     reflection = efficiency_cycles.reconcile(resolved_root)
@@ -667,7 +776,8 @@ def sync_codex_usage(
     return {
         "schemaVersion": COLLECTOR_SCHEMA_VERSION,
         "state": "partial" if skipped else "synced" if recorded else "current",
-        "sourceTrust": "runtime-observed" if implicit_runtime_selection else "asserted-runtime",
+        "sourceTrust": "runtime-observed" if selection_mode in {"environment-thread", "project-session-discovery"} else "asserted-runtime",
+        "selectionMode": selection_mode,
         "completedTurnCount": len(data["completed"]),
         "selectedCount": len(selected),
         "recordedCount": recorded,

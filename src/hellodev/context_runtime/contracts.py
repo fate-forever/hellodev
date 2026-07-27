@@ -17,6 +17,15 @@ class RepositoryFile:
 
 
 @dataclass(frozen=True, slots=True)
+class RepositoryMarker:
+    path: str
+    kind: str
+    size: int
+    modified_ns: int
+    changed_ns: int
+
+
+@dataclass(frozen=True, slots=True)
 class RepositorySnapshot:
     snapshot_id: str
     metadata_fingerprint: str
@@ -24,7 +33,8 @@ class RepositorySnapshot:
     scanned_bytes: int
     skipped: tuple[tuple[str, int], ...]
     state: str
+    markers: tuple[RepositoryMarker, ...]
     cache_hit: bool = False
 
 
-__all__ = ["RepositoryFile", "RepositorySnapshot"]
+__all__ = ["RepositoryFile", "RepositoryMarker", "RepositorySnapshot"]

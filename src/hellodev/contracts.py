@@ -15,6 +15,7 @@ from pathlib import Path
 from typing import Any
 
 from . import capabilities, lifecycle, receipts, sagas
+from .context_runtime.native import snapshot as repository_snapshot
 from .project import (
     ProjectError,
     ProjectPaths,
@@ -864,6 +865,7 @@ def _evidence_receipt_is_current(root: Path, link: dict[str, Any], fingerprint: 
         return False
     try:
         evidence = receipts.get(root, link["receiptId"])
+        expected_binding = evidence_binding(root, link["workItemId"])
     except ProjectError:
         return False
     return (
@@ -871,6 +873,7 @@ def _evidence_receipt_is_current(root: Path, link: dict[str, Any], fingerprint: 
         and evidence["kind"] == link["evidenceKind"]
         and evidence["kind"] in {"gate", "test"}
         and evidence["outcome"] == "succeeded"
+        and evidence.get("evidenceBindingSha256") == receipts.payload_sha256(expected_binding)
     )
 
 
@@ -910,11 +913,12 @@ def evidence_binding(root: str | Path, work_item_id: str | None = None) -> dict[
     if work_item["sourceFingerprint"] != current_fingerprint:
         raise ProjectError("WorkItem fingerprint is stale; refresh it before running validation")
     return {
-        "schemaVersion": 1,
+        "schemaVersion": 2,
         "workItemId": work_item["id"],
         "backend": work_item["backend"],
         "nativeRef": work_item["nativeRef"],
         "sourceFingerprint": current_fingerprint,
+        "repositorySnapshot": repository_snapshot(resolved).snapshot_id,
     }
 
 

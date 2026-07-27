@@ -160,19 +160,26 @@ def _truncate_utf8(text: str, byte_cap: int) -> tuple[str, bool]:
 
 
 def _context_plane_projection(value: dict[str, Any]) -> dict[str, Any]:
+    metrics = value["metrics"]
     return {
         **{key: value[key] for key in (
             "schemaVersion", "state", "backend", "scope", "querySha256", "snapshot",
-            "snapshotState", "continuation", "metrics", "readOnly", "persistencePerformed",
+            "snapshotState", "focus", "continuationSession", "continuation", "readOnly", "persistencePerformed",
             "rawContentPersisted",
         )},
         "items": [
             {key: item[key] for key in (
-                "sourceType", "authority", "path", "startLine", "endLine", "fileSha256",
-                "snippetSha256", "score", "complete",
+                "path", "startLine", "endLine", "fileSha256", "snippetSha256", "complete",
             )}
             for item in value["items"]
         ],
+        "metrics": {
+            key: metrics[key]
+            for key in (
+                "scannedFileCount", "matchedFileCount", "returnedItemCount",
+                "returnedTextBytes", "cacheHit", "pageOffset",
+            )
+        },
     }
 
 
@@ -241,7 +248,11 @@ def _query_context_pack(
         root,
         query=query,
         scope=scope,
-        byte_budget=min(48_000, remaining),
+        # Repository snippets are mirrored by provenance, continuation and
+        # result metadata. Allocate only one sixth of the complete response
+        # envelope to raw snippet blocks so the serialized MCP result remains
+        # bounded rather than budgeting text in isolation.
+        byte_budget=min(48_000, max(256, remaining // 6)),
         cursor=cursor,
         persist_metrics=persist_metrics,
     )

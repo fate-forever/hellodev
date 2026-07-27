@@ -87,7 +87,8 @@ class V15RepositoryToolTests(unittest.TestCase):
             meta = value[RESULT_META_KEY]
             self.assertEqual(meta["state"], "partial")
             self.assertEqual(meta["tokenBudget"], 128)
-            self.assertEqual(meta["budgetScope"], "context-text")
+            self.assertEqual(meta["budgetScope"], "complete-mcp-payload-envelope")
+            self.assertLessEqual(len(json.dumps(value, ensure_ascii=False).encode("utf-8")), meta["resultByteLimit"])
             self.assertEqual(meta["continuation"]["tool"], "hellodev_context")
             self.assertEqual(meta["continuation"]["arguments"]["token_budget"], 256)
 
@@ -108,7 +109,7 @@ class V15RepositoryToolTests(unittest.TestCase):
             self.assertEqual(status["repositoryTools"]["suggestedProvider"], "native")
             self.assertEqual(checks["repository-tool-provider"]["state"], "ok")
             self.assertEqual(exported["repositoryTools"]["activationState"], "native-context-plane")
-            self.assertEqual(control["schemaVersion"], 12)
+            self.assertEqual(control["schemaVersion"], 15)
             self.assertEqual(control["diagnostics"]["repositoryTools"]["suggestedProvider"], "native")
             self.assertEqual(integration["repositoryTools"]["state"], "available")
             serialized = json.dumps(exported)

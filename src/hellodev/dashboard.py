@@ -5,7 +5,7 @@ from http import HTTPStatus
 from http.cookies import SimpleCookie
 from http.server import BaseHTTPRequestHandler,ThreadingHTTPServer
 from pathlib import Path
-from . import __version__,capabilities,checkpoints,components,context_runtime,contracts,drift,efficiency_cycles,gates,host_bridge,integrations,lifecycle,optimization,policy_evolution,receipts,repository_tools,resume,sagas,transactions
+from . import __version__,capabilities,changesets,checkpoints,components,context_runtime,contracts,drift,efficiency_cycles,experience,facade,gates,host_bridge,integrations,lifecycle,optimization,policy_evolution,receipts,repository_tools,resume,sagas,transactions,trellis_execution,verification,workflow_projection
 from .governance import usage_status
 from .command_rendering import rewrite_commands
 from .project import ProjectError,ProjectPaths,list_tasks,load_config,utc_now,write_json
@@ -148,7 +148,7 @@ def _diagnostics_snapshot(root:Path,caps:dict,adapters:dict,repository_tool_stat
  try:distribution=components.availability()
  except (components.ComponentError,ProjectError,OSError) as error:distribution={"state":"invalid","reason":str(error)}
  host_checks={}
- for host in ("codex","cursor"):
+ for host in ("antigravity","codex","cursor"):
   try:value=integrations.check(root,host);host_checks[host]={"state":value["state"],"checks":[{"name":item["name"],"state":item["state"]} for item in value["checks"]]}
   except (components.ComponentError,ProjectError,OSError,ImportError) as error:host_checks[host]={"state":"invalid","checks":[],"reason":str(error)}
  fixes=[]
@@ -338,15 +338,27 @@ def _legacy_snapshot(root:Path,instance:str,started:str):
  return rewrite_commands({"schemaVersion":9,"generatedAt":utc_now(),"instanceId":instance,"startedAt":started,"readOnly":True,"lifecycle":{"phase":life["phase"],"cycleId":life["cycleId"],"completedCycleCount":len(life["completedCycles"])},"tasks":{"localCount":len(list_tasks(root)),"trellisActiveCount":len(contracts.list_trellis_tasks(root)),"linkedWorkItemCount":len(contracts.list_work_items(root))},"capabilities":{"state":caps["state"]},"adapters":{"trellis":adapt("trellis"),"nocturne":adapt("nocturne")},"briefs":brief_items,"usage":usage,"efficiencyCycle":_efficiency_cycle_snapshot(root),"continuity":continuity,"optimization":optimize,"advanced":advanced,"audit":{"receipts":len(receipts.list_receipts(root)),"sagas":saga_count,"optimizationTraces":optimize["traceCount"],"reflectionReports":optimize["reportCount"],"evolutionProposals":optimize["proposalCount"],"hostCompletions":advanced["host"]["completionCount"],"pendingTransactions":advanced["transactions"]["pendingCount"],"pendingHostEnvelopes":advanced["host"]["pendingEnvelopeCount"],"policyEvents":advanced["policy"]["eventCount"],"driftFindings":advanced["drift"]["findingCount"],**continuity["auditSummary"]},"actions":[{"label":"刷新能力","command":"hellodev capabilities refresh"},{"label":"构建 L0 brief","command":"hellodev brief build --level L0"},{"label":"进入计划阶段","command":"hellodev lifecycle plan"},{"label":"进入工作阶段","command":"hellodev lifecycle work"}]})
 def snapshot(root:Path,instance:str,started:str):
  value=_legacy_snapshot(root,instance,started)
- value["schemaVersion"]=12
+ value["schemaVersion"]=15
  cached=capabilities.status(root).get("capabilities") or {}
  value["repositoryTools"]=cached.get("repositoryTools") if isinstance(cached.get("repositoryTools"),dict) else repository_tools.discover()
  value["contextPlane"]=context_runtime.status(root)
+ try:value["verification"]=verification.summary(root)
+ except ProjectError:value["verification"]={"schemaVersion":2,"state":"invalid","recordCount":0,"currentRecordCount":0,"reusableSuccessCount":0,"blockedFailureCount":0,"levels":{"T0":0,"T1":0,"T2":0},"scopes":{"code":0,"docs":0,"project":0},"pendingSessionCount":0,"expiredSessionCount":0,"pendingSession":None,"estimatedAvoidedDurationMs":0,"sourceTrust":"host-asserted","rawCommandPersisted":False,"rawOutputPersisted":False,"trellisGateSatisfied":False}
+ try:value["projectMode"]=workflow_projection.status(root)
+ except ProjectError:value["projectMode"]={"schemaVersion":1,"mode":"hybrid-recovery","authoritativeSystem":"unknown","projectionOnly":True,"reasonCode":"projection-invalid"}
+ try:value["facade"]=facade.status(root)
+ except ProjectError:value["facade"]={"schemaVersion":1,"state":"invalid","dailyNamespace":"hellodev","directTrellisPolicy":"advanced-escape-hatch-only","routedTrellisReceiptCount":0,"observableEscapeHatchCount":0,"externalDirectTrellisVisibility":"unavailable","reasonCode":"facade-projection-invalid","readOnly":True,"executionPerformed":False,"persistencePerformed":False}
+ try:value["changeSet"]=changesets.summary(root)
+ except ProjectError:value["changeSet"]={"schemaVersion":1,"state":"invalid","changedFileCount":0,"scopeCounts":{"code":0,"docs":0,"project":0},"changeKinds":{"added":0,"modified":0,"deleted":0},"rawPathsPersisted":False,"rawSourcePersisted":False}
+ try:value["trellisExecution"]=trellis_execution.status(root,project_mode=value["projectMode"],change_set=value["changeSet"])
+ except ProjectError:value["trellisExecution"]={"schemaVersion":1,"state":"invalid","policy":"adaptive","profile":"strict","reasonCodes":["projection-invalid"],"requiredLevel":"T2","scope":"project","command":None,"commandDiscovery":"unavailable","verificationState":"unavailable","runRequired":False,"trellisAuthority":"unknown","finalGatePolicyPreserved":True,"verificationReuse":"exact-command-scope-snapshot","readOnly":True,"executionPerformed":False,"persistencePerformed":False,"rawTaskBodyExposed":False,"rawTaskBodyPersisted":False,"rawPathsExposed":False}
+ value["gateProjection"]={**gates.status(root),"unlinkedDetection":"unavailable"}
+ value["currentTask"]=experience.current_task(root)
  continuity=value["continuity"];next_step=continuity["resume"].get("next") or {"command":"hellodev doctor --fix-hints","reason":"Project state is invalid; inspect deterministic fix hints.","reasonCode":"project-state-invalid","suggestedLevel":"L0"}
  value["briefs"]=value["briefs"][-20:]
  value["now"]={
-  "phase":value["lifecycle"]["phase"],"cycleId":value["lifecycle"]["cycleId"],
-  "workItem":continuity["currentWorkItem"],
+  "phase":value["lifecycle"]["phase"],"cycleId":value["lifecycle"]["cycleId"],"projectMode":value["projectMode"]["mode"],
+  "workItem":continuity["currentWorkItem"],"currentTask":value["currentTask"],
   "blocker":continuity["recoveryCenter"][0] if continuity["recoveryCenter"] else None,
   "next":{"command":next_step["command"],"reason":next_step["reason"],"reasonCode":next_step["reasonCode"],"suggestedLevel":next_step["suggestedLevel"]},
   "health":{"capabilities":value["capabilities"]["state"],"trellis":value["adapters"]["trellis"]["state"],"nocturne":value["adapters"]["nocturne"]["state"],"repositoryTools":value["repositoryTools"].get("state","unknown"),"contextPlane":value["contextPlane"].get("state","unknown")},

@@ -42,7 +42,7 @@ def _saga_summaries(root: Path) -> list[dict[str, Any]]:
 
 def export(root: Path) -> dict[str, Any]:
     """Return hash-only/pointer-only audit state without persisting a report."""
-    from . import checkpoints, context_runtime, contracts, drift, gates, host_bridge, optimization, policy_evolution, repository_tools, resume, transactions
+    from . import checkpoints, context_runtime, contracts, drift, gates, host_bridge, optimization, policy_evolution, repository_tools, resume, transactions, verification
 
     load_config(root)
     capability_state = capabilities.status(root)
@@ -97,7 +97,7 @@ def export(root: Path) -> dict[str, Any]:
             "tokenTrust": evaluation["comparison"]["tokenTrust"],
         }
     return {
-        "schemaVersion": 2,
+        "schemaVersion": 3,
         "rootSha256": _root_digest(root),
         "capabilities": {
             "state": capability_state["state"],
@@ -139,6 +139,7 @@ def export(root: Path) -> dict[str, Any]:
             "configurationInspected": False,
         },
         "contextPlane": context_plane_state,
+        "verification": verification.summary(root),
         "recovery": {
             "state": transaction_state["state"],
             "pendingTransactionCount": transaction_state["pendingCount"],

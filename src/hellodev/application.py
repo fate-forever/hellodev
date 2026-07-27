@@ -18,11 +18,14 @@ from . import __version__
 from . import (
     briefs,
     capabilities,
+    changesets,
     components,
     context_runtime,
     context_policy,
     contracts,
     efficiency_cycles,
+    experience,
+    facade,
     gates,
     knowledge_flows,
     lifecycle,
@@ -32,7 +35,10 @@ from . import (
     resume,
     routing,
     sagas,
+    trellis_execution,
     usage_collector,
+    verification,
+    workflow_projection,
 )
 from .adapters import nocturne, trellis
 from .command_rendering import command_line, rewrite_commands
@@ -45,17 +51,20 @@ from .project import (
     nocturne_config,
     project_initialized,
     resolve_root,
+    selected_host,
     show_task,
 )
 
 
 DailyIntent = Literal[
+    "begin",
     "plan",
     "work",
     "check",
     "finish",
     "task",
     "validate",
+    "verify",
     "recall",
     "remember",
 ]
@@ -64,6 +73,8 @@ DailyIntent = Literal[
 class DoArguments(TypedDict, total=False):
     """Typed input accepted by :meth:`ProjectClient.do`."""
 
+    goal: str
+    acceptance: str | None
     note: str | None
     operation: Literal["create", "list", "show", "current", "start", "validate"]
     title: str | None
@@ -74,17 +85,25 @@ class DoArguments(TypedDict, total=False):
     namespace_scope: str | None
     also_memory: bool
     lesson: str
-    scope: Literal["auto", "project", "cross-project"]
+    scope: Literal["auto", "code", "docs", "project", "cross-project"]
     receipt: str | None
     saga: str | None
     proposal: str | None
     approve: str | None
     timeout: int
+    level: Literal["T0", "T1", "T2"]
+    command: str
+    snapshot: str | None
+    outcome: Literal["succeeded", "failed"] | None
+    duration_ms: int | None
+    session: str | None
 
 
 @dataclass(frozen=True)
 class _DoRequest:
     do_intent: str
+    goal: str | None = None
+    acceptance: str | None = None
     note: str | None = None
     operation: str | None = None
     title: str | None = None
@@ -101,16 +120,24 @@ class _DoRequest:
     proposal: str | None = None
     approve: str | None = None
     timeout: int = 30
+    level: str | None = None
+    command: str | None = None
+    snapshot: str | None = None
+    outcome: str | None = None
+    duration_ms: int | None = None
+    session: str | None = None
 
 
-_INTENTS = frozenset({"plan", "work", "check", "finish", "task", "validate", "recall", "remember"})
+_INTENTS = frozenset({"begin", "plan", "work", "check", "finish", "task", "validate", "verify", "recall", "remember"})
 _ALLOWED_ARGUMENTS: dict[str, frozenset[str]] = {
+    "begin": frozenset({"goal", "acceptance", "task", "approve", "timeout"}),
     "plan": frozenset({"note"}),
     "work": frozenset({"note"}),
     "check": frozenset({"note"}),
     "finish": frozenset({"note"}),
     "task": frozenset({"operation", "title", "task", "approve", "timeout"}),
     "validate": frozenset({"task", "approve", "timeout"}),
+    "verify": frozenset({"level", "command", "scope", "snapshot", "session", "outcome", "duration_ms"}),
     "recall": frozenset(
         {"query", "domain", "limit", "namespace_scope", "also_memory", "approve", "timeout"}
     ),
@@ -119,8 +146,10 @@ _ALLOWED_ARGUMENTS: dict[str, frozenset[str]] = {
     ),
 }
 _REQUIRED_ARGUMENTS: dict[str, frozenset[str]] = {
+    "begin": frozenset({"goal"}),
     "task": frozenset({"operation"}),
     "validate": frozenset({"task"}),
+    "verify": frozenset(),
     "recall": frozenset({"query"}),
     "remember": frozenset({"lesson"}),
 }
@@ -135,6 +164,8 @@ def _do_request(intent: str, arguments: Mapping[str, Any] | None) -> _DoRequest:
         raise ProjectError(f"unsupported {intent} argument(s): {', '.join(sorted(unknown))}")
     string_fields = {
         "note",
+        "goal",
+        "acceptance",
         "operation",
         "title",
         "task",
@@ -147,12 +178,19 @@ def _do_request(intent: str, arguments: Mapping[str, Any] | None) -> _DoRequest:
         "saga",
         "proposal",
         "approve",
+        "level",
+        "command",
+        "snapshot",
+        "outcome",
+        "session",
     }
     for name in string_fields & set(values):
         if values[name] is not None and not isinstance(values[name], str):
             raise ProjectError(f"{name} must be a string")
     if "limit" in values and values["limit"] is not None and type(values["limit"]) is not int:
         raise ProjectError("limit must be an integer")
+    if "duration_ms" in values and values["duration_ms"] is not None and type(values["duration_ms"]) is not int:
+        raise ProjectError("duration_ms must be an integer")
     missing = [
         name
         for name in _REQUIRED_ARGUMENTS.get(intent, ())
@@ -161,7 +199,7 @@ def _do_request(intent: str, arguments: Mapping[str, Any] | None) -> _DoRequest:
     if missing:
         raise ProjectError(f"{intent} requires: {', '.join(sorted(missing))}")
     timeout = values.get("timeout", 30)
-    timeout_ceiling = 300 if intent in {"task", "validate"} else 120
+    timeout_ceiling = 300 if intent in {"begin", "task", "validate"} else 120
     if type(timeout) is not int or not 1 <= timeout <= timeout_ceiling:
         raise ProjectError(f"timeout must be between 1 and {timeout_ceiling} seconds")
     if "also_memory" in values and type(values["also_memory"]) is not bool:
@@ -170,6 +208,24 @@ def _do_request(intent: str, arguments: Mapping[str, Any] | None) -> _DoRequest:
         raise ProjectError("task operation must be create, list, show, current, start, or validate")
     if intent == "remember" and values.get("scope", "auto") not in {"auto", "project", "cross-project"}:
         raise ProjectError("remember scope must be auto, project, or cross-project")
+    if intent == "verify":
+        session = values.get("session")
+        if session is None:
+            if values.get("level", "").upper() not in {"T0", "T1", "T2"} or not values.get("command"):
+                raise ProjectError("verification planning requires level and command")
+            values["level"] = values["level"].upper()
+            if values.get("scope") not in {None, "auto", "code", "docs", "project"}:
+                raise ProjectError("verification scope must be auto, code, docs, or project")
+        elif any(values.get(name) is not None for name in ("level", "command", "scope", "snapshot")):
+            raise ProjectError("verification session recording cannot include level, command, scope, or snapshot")
+        if values.get("outcome") is not None and values["outcome"] not in {"succeeded", "failed"}:
+            raise ProjectError("verification outcome must be succeeded or failed")
+        if session is not None and values.get("outcome") is None:
+            raise ProjectError("verification session recording requires outcome")
+        if session is None and values.get("outcome") is not None and not values.get("snapshot"):
+            raise ProjectError("legacy verification recording requires snapshot")
+        if values.get("snapshot") is not None and values.get("outcome") is None:
+            raise ProjectError("verification snapshot is only accepted when recording an outcome")
     return _DoRequest(do_intent=intent, **values)
 
 
@@ -255,6 +311,7 @@ def _status(root: Path) -> dict[str, Any]:
         "initialized": initialized,
         "project": config,
         "taskCount": task_count,
+        "currentTask": experience.current_task(root) if initialized else None,
         "lifecycle": lifecycle_state,
         "capabilities": capability_cache,
         "trellis": trellis_state,
@@ -262,37 +319,72 @@ def _status(root: Path) -> dict[str, Any]:
         "repositoryTools": repository_tool_state,
         "contextPlane": context_plane_state,
         "distribution": components.availability(),
+        **(
+            (lambda project_mode, change_set: {
+                "projectMode": project_mode,
+                "changeSet": change_set,
+                "verification": verification.summary(root),
+                "trellisExecution": trellis_execution.status(
+                    root, project_mode=project_mode, change_set=change_set
+                ),
+                "gate": gates.status(root),
+                "facade": facade.status(root),
+            })(workflow_projection.status(root), changesets.summary(root))
+            if initialized
+            else {}
+        ),
     }
 
 
-def _roots_overlap(left: Path, right: Path) -> bool:
-    try:
-        left.relative_to(right)
-        return True
-    except ValueError:
-        try:
-            right.relative_to(left)
-            return True
-        except ValueError:
-            return False
-
-
 def _auto_usage_sync(root: Path) -> dict[str, Any]:
-    if os.environ.get("CODEX_THREAD_ID") is None:
-        return {"state": "unavailable", "reasonCode": "codex-thread-id-unavailable", "persistencePerformed": False}
-    if not _roots_overlap(root.resolve(), Path.cwd().resolve()):
-        return {"state": "skipped", "reasonCode": "selected-root-not-current-cwd", "persistencePerformed": False}
+    host = selected_host(root)
+    if host in {"antigravity", "cursor", "none"}:
+        return {
+            "state": "unavailable",
+            "reasonCode": "host-usage-receipt-unavailable",
+            "host": host,
+            "sourceTrust": "unavailable",
+            "measurement": "unavailable",
+            "estimated": False,
+            "persistencePerformed": False,
+        }
+    if os.environ.get("CODEX_THREAD_ID") is not None:
+        try:
+            root.resolve().relative_to(Path.cwd().resolve())
+        except ValueError:
+            try:
+                Path.cwd().resolve().relative_to(root.resolve())
+            except ValueError:
+                return {
+                    "state": "skipped",
+                    "reasonCode": "environment-thread-does-not-own-selected-root",
+                    "persistencePerformed": False,
+                }
     try:
         value = usage_collector.sync_codex_usage(root)
     except ProjectError:
-        return {"state": "unavailable", "reasonCode": "codex-runtime-sync-unavailable", "persistencePerformed": False}
+        return {
+            "state": "unavailable",
+            "reasonCode": "matching-codex-runtime-unavailable",
+            "sourceTrust": "unavailable",
+            "measurement": "unavailable",
+            "estimated": False,
+            "persistencePerformed": False,
+        }
     return {
         "state": value["state"],
+        "reasonCode": "completed-codex-turns-synchronized",
+        "selectionMode": value["selectionMode"],
+        "sourceTrust": value["sourceTrust"],
+        "measurement": "exact",
+        "estimated": False,
+        "completedTurnCount": value["completedTurnCount"],
         "recordedCount": value["recordedCount"],
         "skippedCount": value["skippedCount"],
         "remainingUnrecordedCount": value["remainingUnrecordedCount"],
         "cycleCount": value["reflectionCycle"]["cycleCount"],
         "pendingReceiptCount": value["reflectionCycle"]["pendingReceiptCount"],
+        "remainingUntilNextCycle": value["reflectionCycle"]["remainingUntilNextCycle"],
         "persistencePerformed": value["persistencePerformed"],
     }
 
@@ -321,13 +413,38 @@ def _blockers(state: dict[str, Any]) -> list[str]:
 
 def _compact_status(state: dict[str, Any]) -> dict[str, Any]:
     lifecycle_state = state.get("lifecycle") or {}
+    project_mode = state.get("projectMode") or {}
+    change_set = state.get("changeSet") or {}
+    verification_state = state.get("verification") or {}
     next_step = routing.next_decision(Path(state["root"])) if state["initialized"] else None
     next_command = next_step["command"] if next_step is not None else "hellodev open"
+    current_task = state.get("currentTask")
+    compact_task = (
+        {
+            key: current_task.get(key)
+            for key in ("id", "backend", "nativeRef", "title", "lifecyclePhase", "candidate")
+            if key in current_task
+        }
+        if isinstance(current_task, dict)
+        else current_task
+    )
+    if isinstance(compact_task, dict) and compact_task.get("title") == compact_task.get("nativeRef"):
+        compact_task.pop("title", None)
     value: dict[str, Any] = {
         "version": state["version"],
         "root": state["root"],
         "initialized": state["initialized"],
         "phase": lifecycle_state.get("phase"),
+        "currentTask": compact_task,
+        "projectMode": project_mode.get("mode", "unavailable"),
+        "changeSet": {
+            "changedFileCount": change_set.get("changedFileCount", 0),
+            "scopeCounts": change_set.get("scopeCounts", {"code": 0, "docs": 0, "project": 0}),
+        },
+        "verification": {
+            "levels": verification_state.get("levels", {"T0": 0, "T1": 0, "T2": 0}),
+            "pendingSessionCount": verification_state.get("pendingSessionCount", 0),
+        },
         "blockers": _blockers(state),
         "next": next_command,
         "suggestedLevel": next_step.get("suggestedLevel", context_policy.suggested_level("status"))
@@ -343,7 +460,6 @@ def _compact_status(state: dict[str, Any]) -> dict[str, Any]:
             "state": state["contextPlane"].get("state", "unknown"),
             "backend": state["contextPlane"].get("backend", "native"),
             "lastQueryAvailable": isinstance(state["contextPlane"].get("lastQuery"), dict),
-            "rawContentPersisted": False,
         },
     }
     if state["initialized"]:
@@ -820,8 +936,202 @@ def _run_remember(root: Path, request: _DoRequest, prefix: list[str]) -> dict[st
     }
 
 
+def _begin_continuation(request: _DoRequest) -> list[str]:
+    values = ["do", "begin", "--goal", cast(str, request.goal)]
+    if request.acceptance is not None:
+        values.extend(("--acceptance", request.acceptance))
+    if request.task is not None:
+        values.extend(("--task", request.task))
+    values.extend(("--timeout", str(request.timeout)))
+    return values
+
+
+def _begin_projection(
+    root: Path,
+    request: _DoRequest,
+    route: dict[str, Any],
+    *,
+    state: str,
+    execution_performed: bool,
+    extra: dict[str, Any] | None = None,
+) -> dict[str, Any]:
+    goal = cast(str, request.goal)
+    return {
+        **route,
+        "state": state,
+        "executionPerformed": execution_performed,
+        "objective": {
+            "goal": goal,
+            "acceptance": request.acceptance,
+            "persistedByHelloDev": False,
+        },
+        "currentTask": experience.current_task(root),
+        "contextPlan": experience.context_plan(root, goal, request.acceptance),
+        "next": routing.next_decision(root),
+        **(extra or {}),
+    }
+
+
+def _activate_begin_work(root: Path, backend: str, native_ref: str) -> tuple[dict[str, Any], bool]:
+    phase = lifecycle.status(root)["phase"]
+    current = contracts.current_work_item(root)
+    if phase in {"planned", "working", "checking"}:
+        if current is None or current["backend"] != backend or current["nativeRef"] != native_ref:
+            raise ProjectError(f"cannot begin different work while lifecycle is {phase}; finish the current cycle first")
+        return contracts.refresh_work_item(root, current["id"]), False
+    if phase == "blocked":
+        raise ProjectError("cannot begin work while lifecycle is blocked; resume the current cycle first")
+    if phase == "finished":
+        if backend == "trellis":
+            activated = contracts.activate_trellis_task(root, native_ref)
+            work_item = activated["workItem"]
+        else:
+            work_item = contracts.create_work_item(root, backend, native_ref)
+            lifecycle.begin_cycle(root, work_item["id"])
+        lifecycle.transition(root, "planned", "unified begin")
+        return contracts.refresh_work_item(root, work_item["id"]), True
+    if phase == "new":
+        lifecycle.start(root, "unified begin")
+        phase = "started"
+    if phase == "started":
+        work_item = contracts.create_work_item(root, backend, native_ref)
+        lifecycle.transition(root, "planned", "unified begin")
+        return contracts.refresh_work_item(root, work_item["id"]), True
+    raise ProjectError(f"cannot begin work from lifecycle phase {phase}")
+
+
+def _run_begin(root: Path, request: _DoRequest) -> dict[str, Any]:
+    goal = cast(str, request.goal)
+    route = routing.decide(
+        root,
+        "begin",
+        {"goal": goal, "acceptance": request.acceptance, "task": request.task},
+    )
+    if not project_initialized(root):
+        init_project(root)
+    if lifecycle.status(root)["phase"] == "new":
+        lifecycle.start(root, "unified begin")
+    capabilities.refresh(root)
+
+    trellis_root = root / ".trellis"
+    if trellis_root.is_symlink():
+        raise ProjectError("refusing symlinked .trellis for unified begin")
+    if trellis_root.is_dir():
+        before = contracts.list_trellis_tasks(root)
+        selected_task = request.task
+        if selected_task is not None and selected_task not in before:
+            raise ProjectError(f"Trellis task not found: {selected_task}")
+        if selected_task is None and len(before) > 1:
+            return _begin_projection(
+                root,
+                request,
+                route,
+                state="selection-required",
+                execution_performed=False,
+                extra={
+                    "candidates": before,
+                    "reasonCode": "multiple-trellis-tasks",
+                    "commandTemplate": command_line(root, "do", "begin", "--goal", goal, "--task", "<task>"),
+                },
+            )
+        if selected_task is None and len(before) == 1:
+            selected_task = before[0]
+        if selected_task is None:
+            decision = routing.decide(root, "task", {"operation": "create", "title": goal})
+            created = _run_trellis(root, decision, request.approve, request.timeout, _begin_continuation(request))
+            if not created.get("executionPerformed"):
+                return _begin_projection(
+                    root,
+                    request,
+                    route,
+                    state="awaiting-confirmation",
+                    execution_performed=False,
+                    extra={key: value for key, value in created.items() if key not in route},
+                )
+            result = created.get("result")
+            if not isinstance(result, dict) or result.get("exitCode") != 0:
+                return _begin_projection(
+                    root,
+                    request,
+                    route,
+                    state="trellis-create-failed",
+                    execution_performed=True,
+                    extra={"trellisResult": created},
+                )
+            after = contracts.list_trellis_tasks(root)
+            added = [item for item in after if item not in before]
+            if len(added) != 1:
+                return _begin_projection(
+                    root,
+                    request,
+                    route,
+                    state="selection-required",
+                    execution_performed=True,
+                    extra={
+                        "candidates": after,
+                        "reasonCode": "trellis-create-result-ambiguous",
+                        "trellisResult": created,
+                    },
+                )
+            selected_task = added[0]
+        work_item, changed = _activate_begin_work(root, "trellis", selected_task)
+        capabilities.refresh(root)
+        work_item = contracts.refresh_work_item(root, work_item["id"])
+        return _begin_projection(
+            root,
+            request,
+            route,
+            state="ready" if changed else "already-active",
+            execution_performed=changed,
+            extra={"workItem": work_item, "selectedTask": selected_task},
+        )
+
+    current = contracts.current_work_item(root)
+    if current is not None and lifecycle.status(root)["phase"] in {"planned", "working", "checking"}:
+        if current["backend"] == "local" and show_task(root, current["nativeRef"])["title"] == goal:
+            return _begin_projection(
+                root,
+                request,
+                route,
+                state="already-active",
+                execution_performed=False,
+                extra={"workItem": current, "selectedTask": current["nativeRef"]},
+            )
+        raise ProjectError("cannot begin a new local task before the current lifecycle cycle is finished")
+    task = create_task(root, goal)
+    work_item, _ = _activate_begin_work(root, "local", task["id"])
+    capabilities.refresh(root)
+    work_item = contracts.refresh_work_item(root, work_item["id"])
+    return _begin_projection(
+        root,
+        request,
+        route,
+        state="ready",
+        execution_performed=True,
+        extra={"workItem": work_item, "selectedTask": task["id"]},
+    )
+
+
 def _run_do(root: Path, request: _DoRequest) -> dict[str, Any]:
     intent = request.do_intent
+    if intent == "begin":
+        value = _run_begin(root, request)
+        if value.get("state") == "ready":
+            value["changeSet"] = changesets.capture_baseline(root)
+            value["projectMode"] = workflow_projection.status(root)
+        elif value.get("state") == "already-active":
+            current_changes = changesets.summary(root)
+            value["changeSet"] = (
+                changesets.capture_baseline(root)
+                if current_changes["state"] == "baseline-missing"
+                else current_changes
+            )
+            value["projectMode"] = workflow_projection.status(root)
+        if "projectMode" in value and "changeSet" in value:
+            value["trellisExecution"] = trellis_execution.status(
+                root, project_mode=value["projectMode"], change_set=value["changeSet"]
+            )
+        return value
     if intent in {"plan", "work", "check", "finish"}:
         decision = routing.decide(root, intent, {"note": request.note})
         gate_decision = gates.finish_decision(root) if intent == "finish" else None
@@ -841,6 +1151,12 @@ def _run_do(root: Path, request: _DoRequest) -> dict[str, Any]:
         }
         if intent in {"check", "finish"}:
             value["gate"] = gates.status(root)
+            value["projectMode"] = workflow_projection.status(root)
+            value["changeSet"] = changesets.summary(root)
+            value["verification"] = verification.summary(root)
+            value["trellisExecution"] = trellis_execution.status(
+                root, project_mode=value["projectMode"], change_set=value["changeSet"]
+            )
         if gate_decision is not None:
             value["finishDecision"] = gate_decision
         if intent == "finish":
@@ -862,6 +1178,40 @@ def _run_do(root: Path, request: _DoRequest) -> dict[str, Any]:
         return _run_recall(root, request, ["do", "recall"])
     if intent == "remember":
         return _run_remember(root, request, ["do", "remember"])
+    if intent == "verify":
+        decision = routing.decide(
+            root,
+            "verify",
+            {
+                "level": request.level,
+                "command": request.command,
+                "scope": request.scope,
+                "snapshot": request.snapshot,
+                "session": request.session,
+                "outcome": request.outcome,
+                "duration_ms": request.duration_ms,
+            },
+        )
+        if request.session is not None:
+            result = verification.record_session(root, request.session, cast(str, request.outcome), request.duration_ms)
+        elif request.outcome is None:
+            result = verification.plan(root, cast(str, request.level), cast(str, request.command), request.scope)
+        else:
+            result = verification.record(
+                root,
+                cast(str, request.level),
+                cast(str, request.command),
+                cast(str, request.snapshot),
+                request.outcome,
+                request.duration_ms,
+                request.scope,
+            )
+        return {
+            **decision,
+            "executionPerformed": False,
+            "context": context_policy.suggest(decision["contextIntent"]),
+            "result": result,
+        }
     if intent == "validate":
         decision = routing.decide(root, "validate", {"task": request.task})
         return _run_trellis(
@@ -912,22 +1262,22 @@ class ProjectClient:
         return self._root
 
     def open(self, *, verbose: bool = False) -> dict[str, Any]:
-        with components.verification_session():
+        with components.verification_session(), context_runtime.snapshot_session():
             return rewrite_commands(_open(self._root, verbose))
 
     def next(self) -> dict[str, Any]:
-        with components.verification_session():
+        with components.verification_session(), context_runtime.snapshot_session():
             return rewrite_commands(routing.next_decision(self._root))
 
     def resume(self, *, include_context: bool = False, token_budget: int = 256) -> dict[str, Any]:
-        with components.verification_session():
+        with components.verification_session(), context_runtime.snapshot_session():
             value = resume.build(self._root)
             if include_context:
                 value["context"] = resume.context_pack(self._root, token_budget)
             return rewrite_commands(value)
 
     def status(self, *, verbose: bool = False) -> dict[str, Any]:
-        with components.verification_session():
+        with components.verification_session(), context_runtime.snapshot_session():
             state = _status(self._root)
             return rewrite_commands(state if verbose else _compact_status(state))
 
@@ -985,7 +1335,8 @@ class ProjectClient:
 
     def do(self, intent: DailyIntent | str, arguments: DoArguments | Mapping[str, Any] | None = None) -> dict[str, Any]:
         with components.verification_session():
-            return rewrite_commands(_run_do(self._root, _do_request(intent, arguments)))
+            usage_sync = _auto_usage_sync(self._root)
+            return rewrite_commands({**_run_do(self._root, _do_request(intent, arguments)), "usageSync": usage_sync})
 
 
 __all__ = ["DailyIntent", "DoArguments", "ProjectClient"]

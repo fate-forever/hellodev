@@ -53,6 +53,7 @@ def annotate(
         "tokenMeasurement": measurement,
         "tokenBudget": token_budget,
         "budgetScope": budget_scope,
+        "resultByteLimit": byte_limit,
         "continuation": continuation,
     }
     encoded = json.dumps(result, ensure_ascii=False, sort_keys=True, separators=(",", ":")).encode("utf-8")

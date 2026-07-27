@@ -5,7 +5,8 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Any
 
-from . import capabilities, contracts, gates, lifecycle, repository_tools, sagas
+from . import capabilities, changesets, contracts, facade, gates, lifecycle, repository_tools, sagas, trellis_execution, verification, workflow_projection
+from .command_rendering import command_line
 from .project import ProjectError, project_initialized
 
 
@@ -91,6 +92,23 @@ def next_decision(root: Path) -> dict[str, Any]:
             "suggestedLevel": "L1",
             "executionPerformed": False,
         }
+    verification_state = verification.summary(root)
+    pending_verification = verification_state.get("pendingSession")
+    if pending_verification is not None:
+        return {
+            "schemaVersion": 1,
+            "command": (
+                f"hellodev do verify --session {pending_verification['id']} "
+                "--outcome <succeeded|failed> --duration-ms <milliseconds>"
+            ),
+            "reason": (
+                f"Verification session {pending_verification['id']} is waiting for the host-executed "
+                f"{pending_verification['level']} result in {pending_verification['scope']} scope."
+            ),
+            "reasonCode": "verification-session-pending",
+            "suggestedLevel": "L1",
+            "executionPerformed": False,
+        }
     incomplete = _incomplete_saga(root)
     if incomplete is not None:
         return {
@@ -118,9 +136,9 @@ def next_decision(root: Path) -> dict[str, Any]:
             task = trellis_tasks[0]
             return {
                 "schemaVersion": 1,
-                "command": f"hellodev work activate --trellis-task {task}",
-                "reason": f"Trellis task {task} is the only active native task; activate it as the next HelloDev cycle.",
-                "reasonCode": "single-trellis-task-ready-for-new-cycle",
+                "command": command_line(root, "do", "begin", "--goal", f"Continue {task}", "--task", task),
+                "reason": "One native project task is ready; begin it through the HelloDev daily facade.",
+                "reasonCode": "single-native-task-ready-for-unified-begin",
                 "suggestedLevel": "L1",
                 "executionPerformed": False,
             }
@@ -162,6 +180,41 @@ def next_decision(root: Path) -> dict[str, Any]:
                 "suggestedLevel": "L2",
                 "executionPerformed": False,
             }
+    if lifecycle_state["phase"] == "working":
+        adaptive = trellis_execution.status(root)
+        if adaptive["state"] == "ready" and adaptive["verificationState"] == "missing":
+            return {
+                "schemaVersion": 1,
+                "command": command_line(
+                    root,
+                    "do",
+                    "verify",
+                    "--level",
+                    adaptive["requiredLevel"],
+                    "--command",
+                    adaptive["command"],
+                    "--scope",
+                    adaptive["scope"],
+                ),
+                "reason": (
+                    f"The adaptive Trellis {adaptive['profile']} profile requires one reusable "
+                    f"{adaptive['requiredLevel']} host check before lifecycle checking."
+                ),
+                "reasonCode": "adaptive-trellis-verification-required",
+                "suggestedLevel": "L1",
+                "trellisExecution": adaptive,
+                "executionPerformed": False,
+            }
+        if adaptive["state"] == "ready" and adaptive["verificationState"] == "blocked-unchanged-failure":
+            return {
+                "schemaVersion": 1,
+                "command": command_line(root, "status", "--verbose"),
+                "reason": "The exact adaptive check already failed for unchanged inputs; diagnose or change the affected scope before retrying.",
+                "reasonCode": "adaptive-trellis-unchanged-failure",
+                "suggestedLevel": "L1",
+                "trellisExecution": adaptive,
+                "executionPerformed": False,
+            }
     decision: dict[str, Any] = {
         "schemaVersion": 1,
         **_lifecycle_decision(lifecycle_state["phase"]),
@@ -195,6 +248,7 @@ def build(root: Path) -> dict[str, Any]:
             "currentWorkItem": None,
             "incompleteSaga": None,
             "gateState": "unavailable",
+            "facade": facade.status(root),
             "repositoryTools": {
                 "activeProvider": repository_tool_state["activeProvider"],
                 "suggestedProvider": repository_tool_state["suggestedProvider"],
@@ -214,6 +268,12 @@ def build(root: Path) -> dict[str, Any]:
     pending_envelopes = host_bridge.pending_envelopes(root)
     policy = policy_evolution.status(root)
     checkpoint = checkpoints.status(root)
+    project_mode = workflow_projection.status(root)
+    change_set = changesets.summary(root)
+    verification_state = verification.summary(root)
+    trellis_execution_state = trellis_execution.status(
+        root, project_mode=project_mode, change_set=change_set
+    )
     pending_lesson = contracts.pending_lesson_review(root)
     work_projection = None
     if work_item is not None:
@@ -237,12 +297,17 @@ def build(root: Path) -> dict[str, Any]:
             else None
         ),
         "gateState": gate["state"],
+        "facade": facade.status(root),
         "gateLifecycleConsistency": gate.get("lifecycleConsistency"),
         "finishPolicy": gate["finishPolicy"],
         "pendingTransaction": transaction_state["pending"][0] if transaction_state["pending"] else None,
         "pendingHostEnvelope": pending_envelopes[0] if pending_envelopes else None,
         "activeCanary": policy["activeCanary"],
         "checkpointState": checkpoint["state"],
+        "projectMode": project_mode,
+        "changeSet": change_set,
+        "verification": verification_state,
+        "trellisExecution": trellis_execution_state,
         "repositoryTools": {
             "activeProvider": repository_tool_state["activeProvider"],
             "suggestedProvider": repository_tool_state["suggestedProvider"],
@@ -274,9 +339,13 @@ def context_pack(root: Path, token_budget: int = 256) -> dict[str, Any]:
     canary = projection.get("activeCanary")
     lesson = projection.get("pendingLessonReview")
     repository_tool_state = projection["repositoryTools"]
+    project_mode = projection.get("projectMode") or {"mode": "unavailable"}
+    change_set = projection.get("changeSet") or {"changedFileCount": 0}
+    verification_state = projection.get("verification") or {"pendingSessionCount": 0, "levels": {}}
     lines = [
         "HelloDev resume",
         f"phase: {projection['lifecyclePhase'] or 'uninitialized'}",
+        f"mode: {project_mode['mode']}",
         f"capabilities: {projection['capabilityState']}",
         (
             f"work: {work['id']} {work['backend']} {work['nativeRef']} current={str(work['fingerprintCurrent']).lower()}"
@@ -284,6 +353,14 @@ def context_pack(root: Path, token_budget: int = 256) -> dict[str, Any]:
             else "work: none"
         ),
         f"gate: {projection['gateState']} policy={projection.get('finishPolicy', 'suggest')}",
+        f"changes: {change_set['changedFileCount']}",
+        (
+            "verification: "
+            f"T0={verification_state.get('levels', {}).get('T0', 0)} "
+            f"T1={verification_state.get('levels', {}).get('T1', 0)} "
+            f"T2={verification_state.get('levels', {}).get('T2', 0)} "
+            f"pending={verification_state.get('pendingSessionCount', 0)}"
+        ),
         f"saga: {saga['id']} {saga['phase']}" if saga is not None else "saga: none",
         f"transaction: {transaction['id']} {transaction['state']}" if transaction is not None else "transaction: none",
         f"host-envelope: {envelope['id']} pending" if envelope is not None else "host-envelope: none",

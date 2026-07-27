@@ -10,7 +10,7 @@ from .project import ProjectError
 
 
 INTENT_PATTERN = re.compile(r"^[a-z][a-z0-9-]{0,31}$")
-TOP_LEVEL_INTENTS = ("plan", "work", "check", "finish", "task", "validate", "recall", "remember")
+TOP_LEVEL_INTENTS = ("begin", "plan", "work", "check", "finish", "task", "validate", "verify", "recall", "remember")
 LOCAL_TASK_OPERATIONS = {"create", "list", "show"}
 TRELLIS_TASK_OPERATIONS = {
     "create": ("task-create", "write"),
@@ -24,6 +24,7 @@ LIFECYCLE_TARGETS = {"plan": "planned", "work": "working", "check": "checking", 
 
 def available_intents() -> list[str]:
     return [
+        "begin --goal TEXT [--acceptance TEXT] [--task NATIVE_TASK]",
         "plan [--note TEXT]",
         "work [--note TEXT]",
         "check [--note TEXT]",
@@ -33,6 +34,8 @@ def available_intents() -> list[str]:
         "task show --task TASK_ID (local projects only)",
         "task current|start|validate --task NATIVE_TASK (Trellis projects)",
         "validate --task NATIVE_TASK",
+        "verify --level T0|T1|T2 --command COMMAND [--scope code|docs|project]",
+        "verify --session SESSION_ID --outcome succeeded|failed",
         "recall --query TEXT [narrow memory options]",
         "remember --lesson TEXT [--receipt RECEIPT_ID]",
     ]
@@ -71,6 +74,23 @@ def decide(root: Path, intent: str, arguments: dict[str, Any] | None = None) -> 
         "executionPerformed": False,
         "persistent": False,
     }
+    if selected == "begin":
+        goal = _single_line(values.get("goal"), "goal", 512)
+        acceptance = values.get("acceptance")
+        if acceptance is not None:
+            acceptance = _single_line(acceptance, "acceptance", 1000)
+        task = values.get("task")
+        if task is not None:
+            task = _single_line(task, "task", 96)
+        return {
+            **base,
+            "route": "experience.begin",
+            "backend": "hellodev-or-trellis",
+            "risk": "local-write-or-confirmed-trellis-write",
+            "contextIntent": "code",
+            "arguments": {"goal": goal, "acceptance": acceptance, "task": task},
+            "reasonCode": "unified-task-kickoff",
+        }
     if selected in LIFECYCLE_TARGETS:
         note = values.get("note")
         if note is not None:
@@ -132,6 +152,36 @@ def decide(root: Path, intent: str, arguments: dict[str, Any] | None = None) -> 
         return decide(root, "task", {"operation": "validate", "task": values.get("task")}) | {
             "intent": "validate",
             "reasonCode": "validate-shortcut",
+        }
+    if selected == "verify":
+        session = values.get("session")
+        if session is not None:
+            arguments = {
+                "session": _single_line(session, "session", 64),
+                "outcome": values.get("outcome"),
+                "durationMs": values.get("duration_ms"),
+            }
+        else:
+            level = _single_line(values.get("level"), "level", 2).upper()
+            if level not in {"T0", "T1", "T2"}:
+                raise ProjectError("verification level must be T0, T1, or T2")
+            arguments = {
+                "level": level,
+                "command": _single_line(values.get("command"), "command", 1000),
+                "scope": values.get("scope") or "auto",
+                "snapshot": values.get("snapshot"),
+                "outcome": values.get("outcome"),
+                "durationMs": values.get("duration_ms"),
+            }
+        return {
+            **base,
+            "route": "verification.progressive",
+            "backend": "hellodev-local",
+            "risk": "advisory-read-or-hash-only-record",
+            "persistent": True,
+            "contextIntent": "verification",
+            "arguments": arguments,
+            "reasonCode": "progressive-verification",
         }
     if selected == "recall":
         return {

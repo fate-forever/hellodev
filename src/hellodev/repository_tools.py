@@ -157,7 +157,7 @@ def registration(host: str) -> dict[str, Any]:
             'args = ["serve"]\n'
             'default_tools_approval_mode = "writes"\n'
         )
-    elif host == "cursor":
+    elif host in {"antigravity", "cursor"}:
         import json
 
         snippet = json.dumps(
@@ -166,7 +166,7 @@ def registration(host: str) -> dict[str, Any]:
             indent=2,
         ) + "\n"
     else:
-        raise ValueError("repository tool host must be codex or cursor")
+        raise ValueError("repository tool host must be antigravity, codex, or cursor")
     return {
         "state": "available",
         "host": host,

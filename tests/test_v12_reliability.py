@@ -229,7 +229,7 @@ class V12ReliabilityTests(unittest.TestCase):
             self.assertEqual(checks["trellis-compatibility"]["state"], "ok")
             self.assertEqual(checks["nocturne-compatibility"]["state"], "ok")
             exported = audit.export(root)
-            self.assertEqual(exported["schemaVersion"], 2)
+            self.assertEqual(exported["schemaVersion"], 3)
             self.assertEqual(exported["hostProtocol"]["selectedVersion"], "1.0")
             serialized = json.dumps(exported)
             self.assertNotIn("PRIVATE-TASK-CONTENT", serialized)

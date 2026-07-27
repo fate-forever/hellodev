@@ -14,6 +14,7 @@ PACKAGE_ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(PACKAGE_ROOT / "src"))
 
 from hellodev import governance, usage_collector
+from hellodev.application import ProjectClient
 from hellodev.cli import main
 from hellodev.project import ProjectError, ProjectPaths, init_project
 
@@ -202,7 +203,7 @@ class UsageCollectorTests(unittest.TestCase):
             root, codex_home = self._multi_turn_fixture(directory, completed_turns=3)
             environment = {"CODEX_THREAD_ID": ROOT_THREAD, "CODEX_HOME": str(codex_home)}
             with mock.patch.dict("os.environ", environment, clear=False), mock.patch(
-                "hellodev.application._roots_overlap", return_value=True
+                "hellodev.application.Path.cwd", return_value=root
             ):
                 opened = _run_cli("--root", str(root), "open")
 
@@ -210,6 +211,50 @@ class UsageCollectorTests(unittest.TestCase):
             self.assertEqual(opened["usageSync"]["recordedCount"], 3)
             self.assertEqual(opened["usageSync"]["pendingReceiptCount"], 3)
             self.assertEqual(opened["reflectionCycle"]["pendingReceiptCount"], 3)
+
+    def test_project_discovery_syncs_without_codex_thread_id(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root, codex_home = self._multi_turn_fixture(directory, completed_turns=3)
+            other = Path(directory) / "other-project"
+            other.mkdir()
+            other_file = codex_home / "sessions" / "2026" / "07" / "18" / "rollout-newer-99999999-9999-4999-8999-999999999999.jsonl"
+            _write(other_file, [_meta("99999999-9999-4999-8999-999999999999", "2026-07-18T00:00:00Z", other)])
+            with mock.patch.dict("os.environ", {"CODEX_HOME": str(codex_home)}, clear=True):
+                value = usage_collector.sync_codex_usage(root)
+
+            self.assertEqual(value["selectionMode"], "project-session-discovery")
+            self.assertEqual(value["sourceTrust"], "runtime-observed")
+            self.assertEqual(value["recordedCount"], 3)
+            self.assertTrue(all(item["sourceTrust"] == "runtime-observed" for item in governance.list_runtime_usage_records(root)))
+
+    def test_token_parser_accepts_new_codex_usage_metadata_fields(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root, codex_home = self._fixture(directory)
+            for session in (codex_home / "sessions").rglob("*.jsonl"):
+                items = [json.loads(line) for line in session.read_text(encoding="utf-8").splitlines()]
+                for item in items:
+                    payload = item.get("payload", {})
+                    if payload.get("type") == "token_count" and payload.get("info") is not None:
+                        payload["info"]["total_token_usage"]["cache_write_input_tokens"] = 0
+                _write(session, items)
+
+            value = usage_collector.collect_previous_codex_turn(root, thread_id=ROOT_THREAD, codex_home=codex_home)
+
+            self.assertEqual(value["state"], "recorded")
+            self.assertEqual(value["totalTokens"], 105)
+            self.assertFalse(value["estimated"])
+
+    def test_daily_do_incrementally_syncs_discovered_codex_usage(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root, codex_home = self._multi_turn_fixture(directory, completed_turns=2)
+            with mock.patch.dict("os.environ", {"CODEX_HOME": str(codex_home)}, clear=True):
+                value = ProjectClient(root).do("task", {"operation": "list"})
+
+            self.assertEqual(value["usageSync"]["selectionMode"], "project-session-discovery")
+            self.assertEqual(value["usageSync"]["measurement"], "exact")
+            self.assertFalse(value["usageSync"]["estimated"])
+            self.assertEqual(value["usageSync"]["recordedCount"], 2)
+            self.assertEqual(value["usageSync"]["remainingUntilNextCycle"], 18)
 
     def test_collects_previous_completed_turn_and_subagent_by_cumulative_delta(self) -> None:
         with tempfile.TemporaryDirectory() as directory:

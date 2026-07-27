@@ -61,6 +61,7 @@ from .project import (
     nocturne_config,
     project_initialized,
     resolve_root,
+    selected_host,
     show_task,
 )
 from .snapshot import default_snapshot_path, verify as verify_snapshot
@@ -103,8 +104,8 @@ def _parser(show_all: bool = False) -> argparse.ArgumentParser:
 
     setup_parser = commands.add_parser("setup", help="verify the unified bundle and initialize its private data root")
     setup_parser.add_argument("--home", default=None, help="HelloDev home selected by the same HELLODEV_HOME value")
-    onboard_parser = commands.add_parser("onboard", help="connect this project to the verified unified distribution")
-    onboard_parser.add_argument("--host", choices=("cursor", "codex", "none"), default="cursor")
+    onboard_parser = commands.add_parser("onboard", help="connect this project using the current Core or verified bundle")
+    onboard_parser.add_argument("--host", choices=("antigravity", "cursor", "codex", "none"), default="cursor")
     onboard_parser.add_argument("--without-memory", action="store_true", help="leave bundled Nocturne disabled")
     onboard_parser.add_argument("--with-trellis", action="store_true", help="prepare a confirmed Trellis project initialization when absent")
     component_parser = commands.add_parser("components", help="inspect or verify bundled Trellis and Nocturne")
@@ -116,11 +117,11 @@ def _parser(show_all: bool = False) -> argparse.ArgumentParser:
     integrate_parser = commands.add_parser("integrate", help="render or validate project-scoped Agent host setup")
     integrate_commands = integrate_parser.add_subparsers(dest="integrate_command", required=True)
     for name, help_text in (
-        ("show", "render a Codex or Cursor MCP snippet without writing it"),
+        ("show", "render an Antigravity, Codex, or Cursor MCP snippet without writing it"),
         ("check", "validate the bounded local MCP integration without reading host config"),
     ):
         command = integrate_commands.add_parser(name, help=help_text)
-        command.add_argument("--host", choices=("codex", "cursor"), required=True)
+        command.add_argument("--host", choices=("antigravity", "codex", "cursor"), required=True)
 
     mcp_parser = commands.add_parser("mcp", help="optional official-SDK root-bound MCP transport")
     mcp_commands = mcp_parser.add_subparsers(dest="mcp_command", required=True)
@@ -420,6 +421,12 @@ def _parser(show_all: bool = False) -> argparse.ArgumentParser:
 
     do_parser = commands.add_parser("do", help="run one deterministic HelloDev intent")
     do_commands = do_parser.add_subparsers(dest="do_intent", required=True)
+    do_begin = do_commands.add_parser("begin", help="start or select one task and establish the daily work cycle")
+    do_begin.add_argument("--goal", required=True)
+    do_begin.add_argument("--acceptance", default=None)
+    do_begin.add_argument("--task", default=None, help="explicit existing Trellis task when discovery is ambiguous")
+    do_begin.add_argument("--approve", default=None)
+    do_begin.add_argument("--timeout", type=int, default=60)
     for intent in ("plan", "work", "check", "finish"):
         lifecycle_intent = do_commands.add_parser(intent, help=f"run the {intent} lifecycle intent")
         lifecycle_intent.add_argument("--note", default=None)
@@ -433,6 +440,16 @@ def _parser(show_all: bool = False) -> argparse.ArgumentParser:
     do_validate.add_argument("--task", required=True)
     do_validate.add_argument("--approve", default=None)
     do_validate.add_argument("--timeout", type=int, default=60)
+    do_verify = do_commands.add_parser("verify", help="plan or record a progressive host-executed verification")
+    do_verify.add_argument("--level", choices=("T0", "T1", "T2"), default=None)
+    do_verify.add_argument(
+        "--command", dest="verification_command", default=None, help="single host command; HelloDev never executes it"
+    )
+    do_verify.add_argument("--scope", dest="verification_scope", choices=("code", "docs", "project"), default=None)
+    do_verify.add_argument("--session", default=None, help="pending verification session returned by the plan")
+    do_verify.add_argument("--snapshot", default=None, help="repository snapshot returned by the plan")
+    do_verify.add_argument("--outcome", choices=("succeeded", "failed"), default=None)
+    do_verify.add_argument("--duration-ms", type=int, default=None)
     do_recall = do_commands.add_parser("recall", help="run the local-first recall intent")
     add_recall_options(do_recall)
     do_remember = do_commands.add_parser("remember", help="run the evidence-gated remember intent")
@@ -802,34 +819,55 @@ def _open(root: Path, verbose: bool) -> dict[str, Any]:
     }
 
 
-def _roots_overlap(left: Path, right: Path) -> bool:
-    try:
-        left.relative_to(right)
-        return True
-    except ValueError:
-        try:
-            right.relative_to(left)
-            return True
-        except ValueError:
-            return False
-
-
 def _auto_usage_sync(root: Path) -> dict[str, Any]:
-    if os.environ.get("CODEX_THREAD_ID") is None:
-        return {"state": "unavailable", "reasonCode": "codex-thread-id-unavailable", "persistencePerformed": False}
-    if not _roots_overlap(root.resolve(), Path.cwd().resolve()):
-        return {"state": "skipped", "reasonCode": "selected-root-not-current-cwd", "persistencePerformed": False}
+    host = selected_host(root)
+    if host in {"antigravity", "cursor", "none"}:
+        return {
+            "state": "unavailable",
+            "reasonCode": "host-usage-receipt-unavailable",
+            "host": host,
+            "sourceTrust": "unavailable",
+            "measurement": "unavailable",
+            "estimated": False,
+            "persistencePerformed": False,
+        }
+    if os.environ.get("CODEX_THREAD_ID") is not None:
+        try:
+            root.resolve().relative_to(Path.cwd().resolve())
+        except ValueError:
+            try:
+                Path.cwd().resolve().relative_to(root.resolve())
+            except ValueError:
+                return {
+                    "state": "skipped",
+                    "reasonCode": "environment-thread-does-not-own-selected-root",
+                    "persistencePerformed": False,
+                }
     try:
         value = usage_collector.sync_codex_usage(root)
     except ProjectError:
-        return {"state": "unavailable", "reasonCode": "codex-runtime-sync-unavailable", "persistencePerformed": False}
+        return {
+            "state": "unavailable",
+            "reasonCode": "matching-codex-runtime-unavailable",
+            "sourceTrust": "unavailable",
+            "measurement": "unavailable",
+            "estimated": False,
+            "persistencePerformed": False,
+        }
     return {
         "state": value["state"],
+        "reasonCode": "completed-codex-turns-synchronized",
+        "selectionMode": value["selectionMode"],
+        "sourceTrust": value["sourceTrust"],
+        "measurement": "exact",
+        "estimated": False,
+        "completedTurnCount": value["completedTurnCount"],
         "recordedCount": value["recordedCount"],
         "skippedCount": value["skippedCount"],
         "remainingUnrecordedCount": value["remainingUnrecordedCount"],
         "cycleCount": value["reflectionCycle"]["cycleCount"],
         "pendingReceiptCount": value["reflectionCycle"]["pendingReceiptCount"],
+        "remainingUntilNextCycle": value["reflectionCycle"]["remainingUntilNextCycle"],
         "persistencePerformed": value["persistencePerformed"],
     }
 
@@ -1494,7 +1532,18 @@ def _profile_resume_arguments(args: argparse.Namespace) -> list[str]:
 
 
 def _project_client_do_arguments(args: argparse.Namespace) -> dict[str, Any]:
+    if args.do_intent == "verify":
+        return {
+            "level": args.level,
+            "command": args.verification_command,
+            "scope": args.verification_scope,
+            "snapshot": args.snapshot,
+            "session": args.session,
+            "outcome": args.outcome,
+            "duration_ms": args.duration_ms,
+        }
     fields: dict[str, tuple[str, ...]] = {
+        "begin": ("goal", "acceptance", "task", "approve", "timeout"),
         "plan": ("note",),
         "work": ("note",),
         "check": ("note",),

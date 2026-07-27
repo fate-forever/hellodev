@@ -1,12 +1,14 @@
-# HelloDev Core 0.16.0 release checklist
+# HelloDev Core 0.19.6 release checklist
 
-0.16.0 adds a HelloDev-owned, native read-only Context Plane with deterministic
-query planning, budget-before-render composition, path/line/hash provenance and
-snapshot-bound cursor continuation. Context state persists metrics and hashes
-only, never query text, repository paths or source snippets. FastCtx is not a
-runtime dependency; any future integration remains an optional accelerator
-behind HelloDev contracts. Trellis/Nocturne process and data boundaries remain
-unchanged. Dashboard projection schema advances to v12.
+0.19.6 keeps Trellis authoritative underneath while enforcing HelloDev as the
+daily task, lifecycle, validation and recovery facade. Host rules and MCP
+instructions classify direct Trellis use as an advanced escape hatch; finished
+native work re-enters through `do begin`, strict gate recovery prefers
+`do validate`, and read-only facade diagnostics disclose only HelloDev-observed
+generic escape receipts. It keeps six MCP tools and Dashboard schema v15 /
+Control Center 2.6. Its adaptive Trellis execution projection selects one
+quick/standard/strict host check, reuses exact successful evidence, and refuses
+blind retries of unchanged failures without executing tests or mutating Trellis.
 
 The source publication and a self-contained platform bundle are separate
 deliverables. Pushing the Core source does not mean that an archive, GitHub
@@ -14,7 +16,7 @@ Release, PyPI package or bundled Trellis/Nocturne runtime exists.
 
 ## 1. Version and source boundary
 
-Confirm `0.16.0` agrees in:
+Confirm `0.19.6` agrees in:
 
 - `pyproject.toml` and `src/hellodev/__init__.py`;
 - README, Quick Start and this checklist;
@@ -26,6 +28,11 @@ Confirm the Core source contains no FastCtx source/binary/Pdfium payload. The
 native Context Plane must remain complete without FastCtx. Any compatibility
 snippet must be project-scoped, marked non-required/non-recommended, and never
 reported as an active MCP connection or a second daily interface.
+
+Confirm Antigravity onboarding writes only project-level `.agents/` files,
+preserves unrelated MCP servers, refuses conflicting `hellodev` entries and
+never writes `~/.gemini`. Verify the exact six MCP tools after onboarding and
+verify `open` reports unavailable usage without invoking Codex collection.
 
 The editable source is `packages/hellodev-core`. GitHub publication must use an
 independent real working copy. Preserve all existing `outputs/` snapshots,
@@ -44,7 +51,11 @@ manual commands. Verify that the protocol:
 - never documents a nonexistent bootstrap script or an unpublished PyPI path;
 - limits host changes to project configuration and preserves conflicting data;
 - keeps approval, external writes and product choices human-confirmed;
-- preserves `open -> next -> do` and `resume` as the default story.
+- leads with `onboard -> open -> do begin -> next -> do` and keeps `resume` as recovery;
+- states that Core onboarding reuses existing external components and never invents a Nocturne command;
+- states that `begin` preserves Trellis approval and fails closed on ambiguous task selection.
+- tells the host to execute planned checks, record the exact snapshot outcome,
+  and keep final Trellis validation authoritative.
 
 Run the Markdown link/fence regression in `tests.test_v121_oss` and inspect the
 rendered first screen before publication.
@@ -93,9 +104,25 @@ Verify all of the following:
 - tampered Context Plane state fails closed and cannot smuggle repository text
   through status, audit or Dashboard;
 - MCP continuation uses the cursor without adding a seventh tool;
-- Dashboard schema is 12 / Control Center 2.2 and remains GET/copy-only;
+- Dashboard schema is 15 / Control Center 2.6 and remains GET/copy-only;
 - no Context Plane path executes shell, writes code, authorizes an adapter, or
   changes Trellis/Nocturne authority.
+
+## 3c. Progressive verification gate
+
+Verify all of the following:
+
+- `do verify` plans but never executes a command;
+- successful evidence is reused only for an exact command hash, WorkItem and
+  repository snapshot;
+- an unchanged failed check is blocked until repository inputs change;
+- recording rejects stale snapshots and contradictory outcomes;
+- the store contains no raw command or output and fails closed on malformed or
+  symlinked state;
+- host-asserted intermediate evidence never satisfies a Trellis gate;
+- Trellis gate/test evidence binding includes repository snapshot, so source
+  mutation invalidates old evidence links;
+- status, audit and Dashboard expose only bounded aggregate counts.
 
 ## 3a. Knowledge lifecycle gate
 
@@ -128,15 +155,15 @@ From a clean checkout and fresh Python 3.10–3.12 environment:
 ```powershell
 python -m pip install -e ".[mcp]"
 hellodev --version
-hellodev integrate show --host cursor
+hellodev onboard --host cursor
 hellodev integrate check --host cursor
 hellodev open
-hellodev next
+hellodev do begin --goal "release smoke" --acceptance "status reports one currentTask"
 ```
 
-The documentation must not use `onboard` as the Core path: `onboard` is the
-verified unified-distribution workflow. Core uses `open` plus `integrate
-show/check`, and reuses separately installed adapters or degrades to local-only.
+The documentation must use project-scoped `onboard` for both Core and bundle.
+Core onboarding must not call bundle setup, modify global host configuration,
+invent a Nocturne command, or claim that external components are bundled.
 
 ## 5. Unified component and bundle gate
 
@@ -181,7 +208,7 @@ The separate PyPI workflow must:
 
 Source push, tag, Release, asset upload, PyPI publication and user-level install
 are distinct externally visible actions and require the corresponding user
-authorization. The 0.16.0 source push does not create the others.
+authorization. The 0.19.6 source push does not create the others.
 
 ## 7. Validation commands
 
@@ -213,7 +240,7 @@ isolation and copy-only Dashboard contracts.
 Only after every release gate passes may maintainers create a new real directory:
 
 ```text
-outputs/hellodev-core-releases/0.16.0/
+outputs/hellodev-core-releases/0.19.6/
 ├─ source/
 ├─ python/
 ├─ bundles/

@@ -12,7 +12,7 @@ sys.path.insert(0, str(PACKAGE_ROOT / "src"))
 
 from hellodev import audit, dashboard
 from hellodev.application import ProjectClient
-from hellodev.context_runtime import build_context, status
+from hellodev.context_runtime import build_context, clear_result_sessions, status
 from hellodev.context_runtime.native import clear_cache
 from hellodev.mcp_gateway import Gateway
 from hellodev.project import ProjectError, ProjectPaths
@@ -21,6 +21,7 @@ from hellodev.project import ProjectError, ProjectPaths
 class V16ContextPlaneTests(unittest.TestCase):
     def setUp(self) -> None:
         clear_cache()
+        clear_result_sessions()
 
     @staticmethod
     def _repository(root: Path, count: int = 8) -> None:
@@ -132,7 +133,7 @@ class V16ContextPlaneTests(unittest.TestCase):
             client.context(query="private session timeout phrase", scope="code", token_budget=256)
             exported = audit.export(root)
             control = dashboard.snapshot(root, "fixture", "2026-07-22T00:00:00Z")
-            self.assertEqual(control["schemaVersion"], 12)
+            self.assertEqual(control["schemaVersion"], 15)
             self.assertEqual(control["contextPlane"]["backend"], "native")
             self.assertIn("contextPlane", exported)
             serialized = json.dumps({"audit": exported, "dashboard": control})

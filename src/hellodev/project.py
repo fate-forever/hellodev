@@ -9,7 +9,7 @@ import tempfile
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Any
+from typing import Any, Literal
 
 
 CONFIG_NAME = "config.json"
@@ -17,6 +17,8 @@ TASKS_DIRECTORY = "tasks"
 BRIEFS_DIRECTORY = "briefs"
 SCHEMA_VERSION = 1
 TASK_ID_PATTERN = re.compile(r"^task-[0-9]{4,}$")
+HostKind = Literal["antigravity", "codex", "cursor", "none"]
+HOST_KINDS = {"antigravity", "codex", "cursor", "none"}
 
 
 class ProjectError(ValueError):
@@ -73,6 +75,14 @@ class ProjectPaths:
     @property
     def receipts_file(self) -> Path:
         return self.state_dir / "receipts.json"
+
+    @property
+    def verification_file(self) -> Path:
+        return self.state_dir / "verification.json"
+
+    @property
+    def changeset_file(self) -> Path:
+        return self.state_dir / "changeset.json"
 
     @property
     def sagas_dir(self) -> Path:
@@ -198,10 +208,37 @@ def load_config(root: str | Path) -> dict[str, Any]:
         raise ProjectError("unsupported HelloDev config schema")
     if not isinstance(config.get("projectName"), str):
         raise ProjectError("HelloDev config is missing projectName")
+    host = config.get("host")
+    if host is not None and (
+        not isinstance(host, dict)
+        or host.get("kind") not in HOST_KINDS
+        or set(host) != {"kind"}
+    ):
+        raise ProjectError("HelloDev config has an invalid host selection")
     from .profiles import config_fields, policy_from_config
 
     config.update(config_fields(policy_from_config(config)))
     return config
+
+
+def configure_host(root: str | Path, host: HostKind) -> dict[str, str]:
+    if host not in HOST_KINDS:
+        raise ProjectError("HelloDev host must be antigravity, codex, cursor, or none")
+    paths = ProjectPaths(resolve_root(root))
+    config = load_config(paths.root)
+    selected = {"kind": host}
+    if config.get("host") != selected:
+        config["host"] = selected
+        write_json(paths.config_file, config)
+    return selected
+
+
+def selected_host(root: str | Path) -> str | None:
+    paths = ProjectPaths(resolve_root(root))
+    if not paths.config_file.is_file():
+        return None
+    host = load_config(paths.root).get("host")
+    return host.get("kind") if isinstance(host, dict) else None
 
 
 def configure_nocturne(

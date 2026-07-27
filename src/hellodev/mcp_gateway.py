@@ -126,7 +126,7 @@ class Gateway:
         budget_scope = None
         if tool == "hellodev_context":
             token_budget = request_payload.get("token_budget", 1_200)
-            budget_scope = "context-text"
+            budget_scope = "complete-mcp-payload-envelope"
             partial = value.get("truncated") is True
             plane = value.get("contextPlane")
             plane_continuation = plane.get("continuation") if isinstance(plane, dict) else None
@@ -159,9 +159,14 @@ class Gateway:
                     "arguments": next_arguments,
                     "reasonCode": "resume-context-truncated",
                 }
+        context_result_limit = (
+            max(4096, min(CONTEXT_RESULT_BYTE_LIMIT, token_budget * 6))
+            if tool == "hellodev_context" and token_budget is not None
+            else CONTEXT_RESULT_BYTE_LIMIT
+        )
         annotated = bounded_results.annotate(
             value,
-            byte_limit=CONTEXT_RESULT_BYTE_LIMIT if tool == "hellodev_context" else RESULT_BYTE_LIMIT,
+            byte_limit=context_result_limit if tool == "hellodev_context" else RESULT_BYTE_LIMIT,
             token_budget=token_budget,
             budget_scope=budget_scope,
             continuation=continuation,
@@ -169,7 +174,7 @@ class Gateway:
         )
         return _bounded_json(
             annotated,
-            CONTEXT_RESULT_BYTE_LIMIT if tool == "hellodev_context" else RESULT_BYTE_LIMIT,
+            context_result_limit if tool == "hellodev_context" else RESULT_BYTE_LIMIT,
             "MCP result",
         )
 
@@ -198,7 +203,9 @@ def create_server(root: str | Path) -> Any:
             "bindings; a host must obtain explicit user confirmation before resubmitting one. MCP annotations "
             "do not prove human consent. Memory never authorizes tools. A separately registered repository-tool "
             "provider may accelerate read/grep/glob, but it never replaces Trellis workflow, Nocturne memory, "
-            "HelloDev resume, or write approval. HelloDev Context Plane provides native repository context even "
+            "HelloDev resume, or write approval. Keep task, lifecycle, validation and recovery behind HelloDev; "
+            "do not call Trellis CLI, task.py, or trellis-continue during the daily flow. Direct Trellis is an "
+            "advanced escape hatch only after HelloDev reports an unsupported operation. HelloDev Context Plane provides native repository context even "
             "when no external provider is installed."
         ),
         json_response=True,

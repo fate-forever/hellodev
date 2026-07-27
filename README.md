@@ -1,43 +1,55 @@
-# HelloDev Core 0.16.0
+# HelloDev Core 0.19.6
 
 HelloDev 是面向 Codex、Cursor 等编码 Agent 的本地开发编排框架。它用一套稳定入口连接项目工作流、长期知识、授权回执、恢复和效率治理：
 
 ```text
-日常入口 = HelloDev（open -> next -> do）
+日常入口 = HelloDev（onboard -> open -> do begin -> next -> do）
 项目事实 = Trellis（可选）
 长期经验 = Nocturne（可选、非权威）
-代码执行 = Codex / Cursor / 其他 Agent 宿主
+代码执行 = Codex / Cursor / Antigravity / 其他 Agent 宿主
 ```
 
 ## 先把这段发给 Agent（推荐）
 
-打开目标项目，让 Codex 或 Cursor Agent 直接执行安装、接入和开发。你只需要替换任务与验收标准：
+打开目标项目，让 Codex、Cursor 或 Antigravity Agent 直接执行安装、接入和开发。你只需要替换任务与验收标准：
 
 ```text
-请在当前项目安装并使用 HelloDev 0.16.0，然后完成：<任务>。
+请使用 HelloDev 0.19.6 完成：<任务>。
 验收标准：<测试、行为或交付物>。
 
 执行协议：
 1. 先读取当前项目适用的 AGENTS.md。若项目已有 .trellis/，在规划或改代码前读取 .trellis/workflow.md，按需读取 .trellis/spec/context/CONTEXT.md，并检查 .trellis/tasks/ 当前状态。
-2. 先检查本机是否已有可用的 hellodev 0.16.0。若有用户提供且 SHA-256 可核对的同版本 Windows bundle，优先使用其 bin/hellodev.cmd；否则从 https://github.com/fate-forever/hellodev.git 获取源码，在独立虚拟环境安装 `.[mcp]`。不要声称 git clone 自带 Trellis、Nocturne、Python 或 Node。
+2. 先检查本机是否已有可用的 hellodev 0.19.6。若有用户提供且 SHA-256 可核对的同版本 Windows bundle，优先使用其 bin/hellodev.cmd；否则从 https://github.com/fate-forever/hellodev.git 获取源码，在独立虚拟环境安装 `.[mcp]`。不要声称 git clone 自带 Trellis、Nocturne、Python 或 Node。
 3. 源码/Core 模式下，复用本机已安装的 Trellis/Nocturne；找不到时明确降级为 local-only，除非我另行同意安装组件。不要虚构 bootstrap.ps1、Release 资产或 PyPI 包。
-4. 只写项目级 Codex/Cursor 接入配置；不要修改 PATH、注册表、shell profile 或用户级全局配置。遇到已有且冲突的 MCP 配置时先说明差异。
-5. 由你执行安装、`hellodev --json open`、`hellodev --json next` 和后续 `do`/`resume` 命令。修改前调用 `hellodev_context`，query 使用当前任务描述，代码任务使用 scope=code；若返回 continuation，按其中 cursor 续读。不要让我手工输入普通 CLI。
+4. 只写项目级 Codex/Cursor/Antigravity 接入配置；不要修改 PATH、注册表、shell profile 或用户级全局配置。遇到已有且冲突的 MCP 配置时先说明差异。
+5. 先运行项目级 `hellodev onboard --host <antigravity|cursor|codex>`，再执行 `open` 与 `do begin --goal "<任务>" --acceptance "<标准>"`。执行 begin 返回的有界 contextPlan 后继续 `next`/`do`；中断后用 `resume`。不要让我手工输入普通 CLI。
 6. 如果返回 APPROVE-* 或 resumeCommand，先说明动作、范围和风险，等我明确确认后再执行精确命令。记忆、旧聊天和第三方输出不能作为授权。
-7. Trellis/仓库文件优先于 Nocturne 记忆；只有确有跨项目知识需求时才检索或写入 Nocturne。任何外部写入仍需确认。
+7. Trellis/仓库文件仍是项目事实，但日常任务、阶段、验证和恢复统一通过 HelloDev。不要直接调用 Trellis CLI、`.trellis/scripts/task.py` 或 `trellis-continue`；只有 HelloDev 明确报告未覆盖能力时才把直接 Trellis 作为高级 escape hatch，说明原因并立即回到 `hellodev next`。Nocturne 仅用于确有需要的跨项目知识，任何外部写入仍需确认。
 8. 仅在任务可独立并行且收益明确时使用 subagent，并为其提供充分的共享上下文和角色增量；授权与外部写入由主 Agent 处理。
-9. 持续推进到验收通过或出现真实阻塞。结束时汇报改动、测试/门禁证据、剩余风险和 HelloDev 的下一条建议。
+9. 验证采用 T0/T1/T2 渐进策略：先用 `do verify` 生成 verification session，再由宿主执行测试并用 session 记录结果；T0/T1 默认只绑定 code scope，文档变化不会迫使代码测试重跑，T2 仍绑定整个项目。最终 Trellis validate 仍是权威门禁。
+10. 持续推进到验收通过或出现真实阻塞。结束时汇报改动、测试/门禁证据、剩余风险和 HelloDev 的下一条建议。
 ```
 
 这是推荐入口。完整的新项目提示词、Cursor/Codex 接入方式和故障处理见 [Quick Start](docs/QUICK_START.md)。
 
-> **发行事实：** Git 仓库只包含 HelloDev Core 源码，不包含 Trellis/Nocturne/FastCtx 上游源码、Python/Node 运行时或可下载的一体包。0.16.0 增加原生只读 Context Plane、任务驱动检索、哈希/行号来源、稳定 cursor 续读和 Control Center 2.2；自包含 bundle 只有在作为独立 Release 资产发布并提供匹配 SHA-256 后才能按 bundle 使用。本文不宣称 HelloDev 0.16.0 已发布到 PyPI。
+> **发行事实：** Git 仓库只包含 HelloDev Core 源码，不包含 Trellis/Nocturne/FastCtx 上游源码、Python/Node 运行时或可下载的一体包。0.19.6 在 HelloDev 门面内增加自适应 Trellis 验证，但 Trellis 仍是后台权威与高级 escape hatch；自包含 bundle 只有在作为独立 Release 资产发布并提供匹配 SHA-256 后才能按 bundle 使用。本文不宣称 HelloDev 0.19.6 已发布到 PyPI。
+
+## 0.19.6：自适应 Trellis 执行
+
+0.19.6 不修改或重发上游 Trellis，而是在 HelloDev 的 `next` 路径中按风险选择一次必要的宿主验证：文档小改使用 `quick/T0`，普通代码使用 `standard/T1`，P0/P1、删除、大改动和安全/迁移/发布等范围升级为 `strict/T2`。项目存在 `scripts/verify.py` 时优先复用其 `fast/full` 契约，否则只建议能够从项目结构确定发现的测试命令。
+
+- 相同命令、scope、WorkItem 与内容快照的成功证据直接标记 `reused-success`，不重复执行。
+- 未变化的失败证据会停止机械重跑，要求先诊断或改变相关输入。
+- `task.json` 整体读取有 64 KiB 上限，解析后只消费 `priority/scope/status`；不输出或持久化 PRD、描述、路径或源码正文。
+- HelloDev 不自动运行宿主测试、不写 `.trellis/`、不降低确认要求；最终 `do validate` 与 Trellis gate 仍是权威验收。
 
 ## 三分钟了解
 
 HelloDev 解决的不是“再写一个 Agent”，而是让现有 Agent 在日常开发中有统一、可恢复、可审计的工作方式：
 
+- `onboard`：幂等写入项目级宿主接入；Core 与 bundle 使用同一入口，不改全局配置。
 - `open`：初始化或恢复当前项目。
+- `do begin`：按目标创建或选择任务、绑定 WorkItem、进入 planned，并返回有界 Context Plan。
 - `next`：综合 lifecycle、任务指针、Saga、事务和最近回执，只给一条下一步命令。
 - `do`：按确定性意图路由到 lifecycle、Trellis 或 Nocturne，不靠模型猜命令。
 - `resume`：跨会话恢复，优先处理未完成事务、HostEnvelope、Canary 或 Saga。
@@ -47,8 +59,102 @@ HelloDev 解决的不是“再写一个 Agent”，而是让现有 Agent 在日�
 
 ```text
 用户：用 HelloDev 完成这个任务：……
-Agent：open -> next -> do -> 修改代码/测试 -> do check -> do finish
+Agent：onboard -> open -> do begin -> contextPlan -> next -> do -> 测试 -> do finish
 ```
+
+## 0.19.5：HelloDev 前台，Trellis 后台
+
+0.19.5 解决真实使用中“开头使用 HelloDev，后续逐渐退化成直接操作 Trellis”的问题：
+
+- Cursor、Antigravity 与 MCP server 指令要求任务、生命周期、验证和恢复始终经过 HelloDev；`trellis-continue` 统一由 `hellodev resume` 取代。
+- 已完成周期发现唯一 Trellis task 时，`next` 返回 `do begin`，不再暴露内部 `work activate`。
+- 严格 finish policy 缺少当前 gate evidence 时，Trellis-backed 项目直接推荐 `do validate`，不先把用户带到高级 `gate status`。
+- `status --verbose`、`resume` 和 Control Center 2.6 新增只读 facade 投影，展示 HelloDev namespace、已路由 Trellis 回执和可观察的 generic escape hatch 次数；默认 compact status 保持原有 1 KB 上限。
+- HelloDev 只能审计经自身执行的 generic Trellis escape hatch；Agent 在外部直接运行 Trellis CLI 对 Core 不可见，因此明确显示 `externalDirectTrellisVisibility=unavailable`，不伪装成完整监控。
+
+Trellis task/spec/gate 仍是仓库权威，HelloDev 不复制其正文、不合并状态机，也不削弱原有审批和验证门禁。
+
+## 0.19.4：端到端效率与召回修复
+
+0.19.4 针对真实多 package 仓库中“检索更慢且可能漏掉跨包事实”的反馈做了兼容优化，不增加命令或 MCP 工具：
+
+- 只有 query 明确包含完整 package identity 时才聚焦子包；普通领域词不再把跨包查询错误锁死在单一 package。
+- 排序优先可执行代码和声明，对注释/docstring 重复命中设上限，并加入小范围确定性词干变体。
+- `open/status/next/resume` 在单次请求内复用 immutable repository snapshot；空项目或无验证记录时延迟昂贵扫描。
+- Codex 历史 usage 回填改为一次锁、一次载入、一次原子写入，保留幂等、冲突拒绝与每 20 回合 ReflectionCycle。
+- `hellodev_context` 的预算约束覆盖完整 MCP JSON 响应，不再只约束 snippet 文本；partial 仍只提供一条有界 continuation。
+
+已知符号或已知文件仍应直接使用宿主原生精确搜索/读取；Context Plane 面向陌生仓库和自然语言查询，不接管 `rg/read`。
+
+## 0.19.3：Antigravity 项目级接入
+
+0.19.3 把 Google Antigravity 纳入现有宿主边界，不增加命令或 MCP 工具：
+
+- `hellodev --root . onboard --host antigravity --with-trellis` 幂等合并 `.agents/mcp_config.json`，并生成 `.agents/rules/hellodev.md`。
+- 只写项目文件，不修改 `~/.gemini/config/mcp_config.json`；已有冲突的 `hellodev` server 或规则会 fail-closed。
+- IDE、CLI 和 SDK 继续看到完全相同的六个 HelloDev MCP 工具；Trellis 初始化保持原生命令，不伪造 Antigravity 专用参数。
+- Antigravity/Cursor 没有提交可信 Host SDK usage receipt 时，token/subagent 数据明确为 `unavailable`，也不会误读同目录下旧 Codex rollout。
+- 接入后在 Antigravity 中检查 workspace rule 激活设置并重载工作区。
+
+## 0.19.2：更快的按需上下文
+
+0.19.2 针对真实项目中的 Context Plane 延迟做了兼容优化，不增加命令或 MCP 工具：
+
+- 当进程位于项目内的 package/worktree 时，优先扫描该安全子树；否则仅在 query 唯一命中 package marker 时聚焦，歧义时回退项目根。
+- 首屏仍执行完整的根目录约束、敏感文件过滤、hash 与来源校验；续页绑定有 TTL、数量、结果数和字节上限的内存结果会话。
+- 同一进程内的续页只校验首屏元数据并复用已排序结果，不再重复 walk、读取和排序；进程重启或缓存淘汰后严格重建。
+- 仓库内容变化仍会令游标 stale；`.hellodev/` 仍不持久化 query、路径、源码或结果会话。
+- 已知文件和小改动仍可跳过 Context Plane，直接使用宿主原生精确读取。
+
+## 0.19.1：可信 Codex 遥测闭环
+
+0.19.1 修复“代码具备反思能力，但真实 Codex/Cursor 使用一直显示 unavailable”的连接问题：
+
+- 自动同步不再强制依赖 `CODEX_THREAD_ID`；缺失时按 HelloDev 项目根目录匹配最近且安全的 Codex rollout。
+- 新版 Codex 新增 Token 元数据字段时，使用结构化 JSON 读取所需计数，不再因无关字段扩展而整体失效。
+- `open` 和日常 `do` 会增量回填已完成回合；当前未完成回合不会被计入，`next/status/resume` 继续保持只读。
+- 只有 `measurement=exact`、`sourceTrust=runtime-observed` 的回执进入每 20 回合一次的确定性 ReflectionCycle；显式导入仍标为较低信任，不参与自动策略反思。
+- 状态明确报告选择方式、可信度、已记录数量和距下一周期的回合数；无法获取时仍为 `unavailable`，绝不按字符数估算。
+- 仅保存脱敏 Token 计数、时间、数量和哈希回执，不保存 thread/turn/subagent id、session 路径、聊天正文或原始事件。
+
+## 0.19.0：自适应日常编排
+
+0.19.0 不新增命令家族，而是让既有 `begin / next / do / resume` 自动理解项目权威、变更范围和待完成验证：
+
+- `local`：没有 `.trellis/`，HelloDev 本地 task/lifecycle 是权威。
+- `trellis-native`：当前 WorkItem 正确指向 Trellis task，Trellis task/spec/gate 是权威，HelloDev lifecycle 只是明确标记的本地投影。
+- `hybrid-recovery`：存在 Trellis，但任务指针缺失、歧义或失效；`next` 只给一条恢复命令。
+- `do begin` 保存 hash-only ChangeSet 基线；后续只展示 code/docs/project 变更计数，不保存源码路径或正文。
+
+T0/T1 默认绑定 `code` scope，T2 默认绑定 `project` scope。规划会持久化一个 hash-only verification session，宿主执行测试后无需重复命令参数：
+
+```powershell
+hellodev --root . do verify --level T1 --command "python -m pytest tests/test_login.py -q"
+# 宿主执行声明的测试后，用返回的 session 精确记录：
+hellodev --root . do verify --session verification-session-0001 --outcome succeeded --duration-ms 820
+```
+
+- 相同命令、相同 WorkItem、相同 scope 快照的成功结果可复用，避免无意义重跑。
+- 相同失败结果在相关输入未变化前会阻止机械重试，提示先诊断或修改输入。
+- session 绑定 scope、快照、WorkItem 和过期时间；scope 变化、WorkItem 切换、过期或重放都会 fail-closed。
+- `.hellodev/verification.json` 仅保存命令哈希、范围快照、结果、耗时和来源标签，不保存命令或输出正文；旧 0.18 `--snapshot` 记录仍兼容。
+- `host-asserted` 中间结果始终是建议性证据，不能满足 Trellis gate；最终 `do validate` 仍是权威门禁。
+
+Control Center 2.5 只读展示 project mode、ChangeSet 计数、pending session、T0/T1/T2 和可信耗时累计。它仍不执行命令、不接收 approval token，也不会从任意 Trellis 日志猜测 gate 已完成。
+
+## 0.17.0：统一开始与当前任务
+
+0.17.0 不删除 0.16.0 的命令、状态、六个 MCP 工具或治理能力，而是把首次接入和任务启动收成一条一致路径：
+
+```powershell
+hellodev --root . onboard --host cursor
+hellodev --root . open
+hellodev --root . do begin --goal "修复登录超时" --acceptance "相关测试通过"
+```
+
+`begin` 在普通项目创建一个本地任务；发现一个 Trellis 活跃任务时直接选择并建立 pointer-only WorkItem；发现多个时 fail-closed 要求明确 `--task`；需要创建 Trellis task 时仍返回一次性 approval，不绕过上游 workflow。输出只给一个解析后的 `currentTask` 和一个 1200-token 上限的 `contextPlan`。内部 local/Trellis/WorkItem 计数仍保留在高级状态与环境详情中，用于诊断而不是日常心智负担。
+
+Core onboarding 会复用已配置的外部 Nocturne；未配置时明确报告 `configuration-required`，不会猜测启动命令。Control Center 2.3 展示当前任务、唯一下一步、恢复和环境诊断，依旧只读、copy-only，不接收 approval token，也不执行 adapter。
 
 ## 0.16.0：原生 Context Plane
 
@@ -128,17 +234,18 @@ py -3.12 -m venv .venv
 .\.venv\Scripts\hellodev.exe --version
 ```
 
-预期版本是 `hellodev 0.16.0`。Python 3.10–3.12 均受源码测试矩阵覆盖。`mcp` extra 用于 Codex/Cursor 的 stdio MCP 接入；只使用 CLI 时可安装 `.`。
+预期版本是 `hellodev 0.19.6`。Python 3.10–3.12 均受源码测试矩阵覆盖。`mcp` extra 用于 Codex/Cursor/Antigravity 的 stdio MCP 接入；只使用 CLI 时可安装 `.`。
 
 在目标项目初始化：
 
 ```powershell
 cd C:\path\to\your-project
+C:\Tools\hellodev\.venv\Scripts\hellodev.exe --root . onboard --host cursor
 C:\Tools\hellodev\.venv\Scripts\hellodev.exe --root . open
-C:\Tools\hellodev\.venv\Scripts\hellodev.exe --root . integrate show --host cursor
+C:\Tools\hellodev\.venv\Scripts\hellodev.exe --root . do begin --goal "<任务>" --acceptance "<验收标准>"
 ```
 
-`integrate show` 只生成项目级配置片段，不读取或修改全局配置。Agent 可以审阅后合并到 `.cursor/mcp.json`；Codex 使用 `--host codex` 并合并到项目 `.codex/config.toml`。重新加载宿主后即可使用六个有界 MCP 工具：
+`onboard` 只创建或合并项目级配置；遇到冲突会 fail-closed，不读取或修改全局配置。Codex 使用 `--host codex`。重新加载宿主后即可使用六个有界 MCP 工具：
 
 ```text
 hellodev_open      hellodev_next       hellodev_do
@@ -150,15 +257,15 @@ hellodev_status    hellodev_context    hellodev_resume
 从 Release 页面取得与平台匹配的 archive 和 SHA-256，核对后解压到真实目录：
 
 ```powershell
-Get-FileHash .\hellodev-0.16.0-windows-x86_64.zip -Algorithm SHA256
-cd C:\Tools\hellodev-0.16.0-windows-x86_64
+Get-FileHash .\hellodev-0.19.6-windows-x86_64.zip -Algorithm SHA256
+cd C:\Tools\hellodev-0.19.6-windows-x86_64
 .\bin\hellodev.cmd components verify
 .\bin\hellodev.cmd setup
 cd C:\path\to\your-project
-C:\Tools\hellodev-0.16.0-windows-x86_64\bin\hellodev.cmd onboard --host cursor --with-trellis
+C:\Tools\hellodev-0.19.6-windows-x86_64\bin\hellodev.cmd onboard --host cursor --with-trellis
 ```
 
-若对应 0.16.0 bundle 尚未发布，不要把源码仓库当作 bundle，也不要把旧版本 archive 改名冒充。`components verify` 证明本地字节与随包 manifest 一致，不等于数字签名、远程来源证明或法律审查。
+若对应 0.19.6 bundle 尚未发布，不要把源码仓库当作 bundle，也不要把旧版本 archive 改名冒充。`components verify` 证明本地字节与随包 manifest 一致，不等于数字签名、远程来源证明或法律审查。
 
 ## Trellis 与 Nocturne 如何接入
 
@@ -359,7 +466,7 @@ hellodev dashboard status
 hellodev dashboard stop
 ```
 
-Control Center 2.2 默认先回答“现在是什么、阻塞是什么、唯一下一步是什么”，再渐进披露恢复中心、可筛选知识生命周期、Recall 回执检查、Codex/Cursor 环境兼容性、Context Plane metrics、效率和审计摘要。它使用短时请求缓存、ETag/304、隐藏页暂停轮询与有界列表；不会展示 Context Plane query/path/源码正文，不会在浏览器中执行命令或接收 approval token，复制出的命令仍回到 Agent/终端并遵守授权协议。
+Control Center 2.6 默认先回答“当前任务是什么、阻塞是什么、唯一下一步是什么”，再渐进披露统一门面状态、内部任务计数、恢复中心、知识生命周期、Recall 回执、宿主兼容性、Context Plane metrics、渐进验证、效率和审计摘要。它使用短时请求缓存、ETag/304、隐藏页暂停轮询与有界列表；不会展示 Context Plane query/path/源码正文，不会在浏览器中执行命令或接收 approval token，复制出的命令仍回到 Agent/终端并遵守授权协议。
 
 ## 开发与验证
 
@@ -373,6 +480,7 @@ python -m build
 
 ## 版本说明
 
+- **0.17.0**：统一 `begin` 任务启动、自动有界 Context Plan、单一 `currentTask` 投影、Core/bundle 一致 onboarding 与 Control Center 2.3；完整保留 0.16.0 命令、状态、MCP、授权、Saga/WAL/policy 和上游边界。
 - **0.16.0**：原生只读 Context Plane、任务驱动 query、预算前置组合、路径/行号/hash 来源、快照绑定 cursor、metrics-only 状态与 Control Center 2.2；FastCtx 降为非必需 optional accelerator。
 - **0.15.0**：可选仓库工具 Provider、只读 FastCtx 发现、Provider-aware status/resume/doctor/audit、MCP payload token/哈希计量与结构化 continuation，以及 Control Center 2.1；native 始终可降级，FastCtx 不自动安装、注册或授权。
 - **0.14.4**：Control Center 2.0 将 NOW、严格恢复优先级、可筛选 LessonProposal、历史 Recall 回执、环境兼容性与效率摘要收敛为只读交互页面；新增 ETag/304、短时请求缓存、隐藏页暂停轮询和有界分页，不增加网页执行面。

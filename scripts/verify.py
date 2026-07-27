@@ -39,6 +39,14 @@ FAST_TESTS = (
     "tests.test_v14_distribution",
     "tests.test_v143_knowledge_lifecycle",
     "tests.test_v16_context_plane",
+    "tests.test_v192_context_efficiency",
+    "tests.test_v193_antigravity",
+    "tests.test_v194_end_to_end_efficiency",
+    "tests.test_v195_unified_facade",
+    "tests.test_v196_adaptive_trellis_execution",
+    "tests.test_v17_usability",
+    "tests.test_v18_progressive_verification",
+    "tests.test_v19_adaptive_orchestration",
 )
 
 

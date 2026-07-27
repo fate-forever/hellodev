@@ -371,8 +371,7 @@ def record_usage(root: Path, total: int, subagent: int, subagents: int, source: 
     return legacy_record
 
 
-def record_runtime_usage(
-    root: Path,
+def _runtime_usage_candidate(
     *,
     input_tokens: int,
     cached_input_tokens: int,
@@ -409,20 +408,53 @@ def record_runtime_usage(
         raise ProjectError("invalid runtime usage source classification")
     candidate["receiptSha256"] = _usage_receipt_digest(candidate)
     _validate_usage_record(candidate)
+    return candidate
+
+
+def record_runtime_usage_batch(root: Path, records: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """Persist runtime receipts with one validated load and one atomic write.
+
+    The whole batch is checked before the store is changed. Existing identical
+    receipts remain idempotent; a different receipt for the same completed-turn
+    scope fails closed without partially appending the batch.
+    """
+    candidates = [_runtime_usage_candidate(**record) for record in records]
+    if not candidates:
+        return []
     with locked_state(root, "usage"):
         store = _runtime_usage_store(root)
-        for existing in store["records"]:
-            if existing["receiptSha256"] == candidate["receiptSha256"]:
-                return {"state": "existing", "record": existing}
-            if existing["scopeSha256"] == scope_sha256:
+        by_receipt = {item["receiptSha256"]: item for item in store["records"]}
+        by_scope = {item["scopeSha256"]: item for item in store["records"]}
+        results: list[dict[str, Any]] = []
+        pending: list[dict[str, Any]] = []
+        batch_scopes: dict[str, dict[str, Any]] = {}
+        for candidate in candidates:
+            existing = by_receipt.get(candidate["receiptSha256"])
+            if existing is not None:
+                results.append({"state": "existing", "record": existing})
+                continue
+            scope_sha256 = candidate["scopeSha256"]
+            if scope_sha256 in by_scope or scope_sha256 in batch_scopes:
                 raise ProjectError("conflicting Codex runtime usage for the same completed turn")
-        if len(store["records"]) >= 100_000:
+            batch_scopes[scope_sha256] = candidate
+            pending.append(candidate)
+            results.append({"state": "recorded", "record": candidate})
+        if len(store["records"]) + len(pending) > 100_000:
             raise ProjectError("HelloDev usage store record limit reached")
         highest = max((int(item["id"].removeprefix("runtime-usage-")) for item in store["records"]), default=0)
-        candidate["id"] = f"runtime-usage-{highest + 1:04d}"
-        store["records"].append(candidate)
-        write_json(ProjectPaths(root).runtime_usage_file, store)
-    return {"state": "recorded", "record": candidate}
+        for offset, candidate in enumerate(pending, start=1):
+            candidate["id"] = f"runtime-usage-{highest + offset:04d}"
+        if pending:
+            store["records"].extend(pending)
+            write_json(ProjectPaths(root).runtime_usage_file, store)
+    return results
+
+
+def record_runtime_usage(
+    root: Path,
+    **record: Any,
+) -> dict[str, Any]:
+    return record_runtime_usage_batch(root, [record])[0]
 
 
 def usage_status(root: Path) -> dict[str, Any]:
