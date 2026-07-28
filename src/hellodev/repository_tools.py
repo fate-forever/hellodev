@@ -26,6 +26,22 @@ FASTCTX_TOOLS = (
     "job_list",
 )
 FASTCTX_WRITE_TOOLS = ("replace", "run", "run_background", "job_kill")
+SERENA_READ_TOOLS = (
+    "find_declaration",
+    "find_implementations",
+    "find_referencing_symbols",
+    "find_symbol",
+    "get_diagnostics_for_file",
+    "get_diagnostics_for_symbol",
+    "get_symbols_overview",
+)
+SERENA_WRITE_TOOLS = (
+    "insert_after_symbol",
+    "insert_before_symbol",
+    "rename_symbol",
+    "replace_symbol_body",
+    "safe_delete_symbol",
+)
 
 
 def _candidate() -> tuple[Path | None, str]:
@@ -88,11 +104,68 @@ def _fastctx() -> dict[str, Any]:
     }
 
 
+def _serena_candidate() -> tuple[Path | None, str]:
+    explicit = os.environ.get("HELLODEV_SERENA_COMMAND")
+    if explicit:
+        return Path(explicit).expanduser(), "environment"
+    resolved = shutil.which("serena")
+    return (Path(resolved), "path") if resolved else (None, "not-found")
+
+
+def _serena() -> dict[str, Any]:
+    candidate, source = _serena_candidate()
+    if candidate is None:
+        return {
+            "state": "unavailable",
+            "source": source,
+            "command": None,
+            "reasonCode": "serena-command-not-found",
+            "mcpConnection": "not-inspected",
+        }
+    if not candidate.is_absolute():
+        return {
+            "state": "unsafe",
+            "source": source,
+            "command": str(candidate),
+            "reasonCode": "serena-command-not-absolute",
+            "mcpConnection": "not-inspected",
+        }
+    try:
+        resolved = candidate.resolve(strict=True)
+        if not resolved.is_file():
+            return {
+                "state": "unavailable",
+                "source": source,
+                "command": str(candidate),
+                "reasonCode": "serena-command-not-regular-file",
+                "mcpConnection": "not-inspected",
+            }
+        stat = resolved.stat()
+    except OSError:
+        return {
+            "state": "unavailable",
+            "source": source,
+            "command": str(candidate),
+            "reasonCode": "serena-command-inaccessible",
+            "mcpConnection": "not-inspected",
+        }
+    return {
+        "state": "available",
+        "source": source,
+        "command": str(resolved),
+        "identity": {"size": stat.st_size, "modifiedNs": stat.st_mtime_ns},
+        "linkResolved": candidate.is_symlink(),
+        "reasonCode": "serena-command-discovered",
+        "mcpConnection": "not-inspected",
+    }
+
+
 def discover() -> dict[str, Any]:
     """Return an honest provider projection without executing external code."""
     fastctx = _fastctx()
+    serena = _serena()
     return {
-        "schemaVersion": 1,
+        "schemaVersion": 2,
         "state": "ready",
         "activeProvider": "native",
         "suggestedProvider": "native",
@@ -108,6 +181,7 @@ def discover() -> dict[str, Any]:
                 "reasonCode": "native-provider-always-available",
             },
             "fastctx": fastctx,
+            "serena": serena,
         },
         "fastctxContract": {
             "namespace": "mcp__fastctx",
@@ -116,6 +190,27 @@ def discover() -> dict[str, Any]:
             "writeApprovalRequired": True,
             "memoryAuthority": "none",
             "workflowAuthority": "none",
+        },
+        "semanticContext": {
+            "activeProvider": "native-python-ast",
+            "fallbackProvider": "native-lexical",
+            "externalProvider": "serena",
+            "externalProviderState": "available-not-connected" if serena["state"] == "available" else serena["state"],
+            "connectionState": "not-inspected",
+            "selectionPolicy": "explicit-symbol-query-only",
+            "languageCoverage": ["python"],
+            "readOnly": True,
+            "required": False,
+        },
+        "serenaContract": {
+            "namespace": "mcp__serena",
+            "readTools": list(SERENA_READ_TOOLS),
+            "writeTools": list(SERENA_WRITE_TOOLS),
+            "writeApprovalRequired": True,
+            "connectionAttested": False,
+            "memoryAuthority": "none",
+            "workflowAuthority": "none",
+            "verificationAuthority": "advisory-only",
         },
         "executionPerformed": False,
         "configurationInspected": False,
@@ -127,11 +222,16 @@ def fingerprint_material() -> dict[str, Any]:
     """Return only provider identity fields relevant to cache invalidation."""
     value = discover()
     fastctx = value["providers"]["fastctx"]
+    serena = value["providers"]["serena"]
     return {
         "fastctxState": fastctx["state"],
         "fastctxSource": fastctx["source"],
         "fastctxCommand": fastctx["command"],
         "fastctxIdentity": fastctx.get("identity"),
+        "serenaState": serena["state"],
+        "serenaSource": serena["source"],
+        "serenaCommand": serena["command"],
+        "serenaIdentity": serena.get("identity"),
     }
 
 
@@ -185,4 +285,7 @@ def registration(host: str) -> dict[str, Any]:
     }
 
 
-__all__ = ["FASTCTX_TOOLS", "FASTCTX_WRITE_TOOLS", "discover", "fingerprint_material", "registration"]
+__all__ = [
+    "FASTCTX_TOOLS", "FASTCTX_WRITE_TOOLS", "SERENA_READ_TOOLS", "SERENA_WRITE_TOOLS",
+    "discover", "fingerprint_material", "registration",
+]

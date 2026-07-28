@@ -106,7 +106,7 @@ class V19AdaptiveOrchestrationTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as directory:
             root, _ = self._project(directory)
             value = dashboard.snapshot(root, "instance", "started")
-            self.assertEqual(value["schemaVersion"], 15)
+            self.assertEqual(value["schemaVersion"], 16)
             self.assertEqual(value["projectMode"]["mode"], "local")
             self.assertFalse(value["changeSet"]["rawPathsPersisted"])
             self.assertFalse(value["verification"]["rawCommandPersisted"])

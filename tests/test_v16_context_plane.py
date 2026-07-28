@@ -133,7 +133,7 @@ class V16ContextPlaneTests(unittest.TestCase):
             client.context(query="private session timeout phrase", scope="code", token_budget=256)
             exported = audit.export(root)
             control = dashboard.snapshot(root, "fixture", "2026-07-22T00:00:00Z")
-            self.assertEqual(control["schemaVersion"], 15)
+            self.assertEqual(control["schemaVersion"], 16)
             self.assertEqual(control["contextPlane"]["backend"], "native")
             self.assertIn("contextPlane", exported)
             serialized = json.dumps({"audit": exported, "dashboard": control})

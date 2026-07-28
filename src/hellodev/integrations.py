@@ -73,6 +73,7 @@ def show(root: str | Path, host: Host | str) -> dict[str, Any]:
         "codex": ".codex/config.toml",
         "cursor": ".cursor/mcp.json",
     }[host]
+    repository_discovery = repository_tools.discover()
     return {
         "schemaVersion": 1,
         "host": host,
@@ -90,6 +91,7 @@ def show(root: str | Path, host: Host | str) -> dict[str, Any]:
             "requiredExternalRuntime": False,
         },
         "repositoryTools": repository_tools.registration(host),
+        "semanticContext": repository_discovery["semanticContext"],
         "snippet": snippet,
         "writePerformed": False,
         "warning": (
@@ -103,6 +105,7 @@ def check(root: str | Path, host: Host | str) -> dict[str, Any]:
     rendered = show(root, host)
     distribution = components.status()
     repository_tool = rendered["repositoryTools"]
+    semantic_context = rendered["semanticContext"]
     checks: list[dict[str, str]] = [
         {"name": "project-root", "state": "ok", "detail": rendered["root"]},
         {
@@ -145,6 +148,15 @@ def check(root: str | Path, host: Host | str) -> dict[str, Any]:
                 else "FastCtx command discovered; optional project-scoped MCP snippet is available"
             ),
         },
+        {
+            "name": "semantic-context-provider",
+            "state": "ok",
+            "detail": (
+                "native Python AST retrieval is active; Serena was discovered but its MCP connection was not inspected"
+                if semantic_context["externalProviderState"] == "available-not-connected"
+                else "native Python AST retrieval is active; Serena is optional and unavailable"
+            ),
+        },
     ]
     if sdk_available():
         try:
@@ -169,6 +181,7 @@ def check(root: str | Path, host: Host | str) -> dict[str, Any]:
         "tools": rendered["tools"],
         "contextPlane": rendered["contextPlane"],
         "repositoryTools": repository_tool,
+        "semanticContext": semantic_context,
         "next": None if state == "ready" else INSTALL_HINT,
         "writePerformed": False,
     }

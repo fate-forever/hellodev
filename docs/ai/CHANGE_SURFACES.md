@@ -1,12 +1,14 @@
 # HelloDev Core change surfaces
 
 Last refreshed: 2026-07-27
-Scope: HelloDev 0.19.6 adaptive Trellis execution
+Scope: HelloDev 0.19.7 semantic context and conservative impact analysis
 
-0.19.6 preserves Trellis authority and the six-tool MCP surface while selecting one reusable quick/standard/strict host verification through the existing HelloDev daily facade.
+0.19.7 preserves Trellis authority and the six-tool MCP surface while adding bounded Python symbol retrieval, optional Serena discovery, and escalation-only semantic impact.
 
 | Change goal | Primary source | Required tests | Documentation / real checks |
 |---|---|---|---|
+| Change semantic Context Plane retrieval | `context_runtime/semantic.py`, `planner.py`, `briefs.py`, `repository_tools.py` | `test_v197_semantic_context.py` plus v0.16/v0.19.2 budget, cursor, privacy and efficiency regressions | AST parsing runs only for explicit symbol-shaped queries; lexical fallback remains complete; no query, symbol, path or source is persisted; Serena discovery never claims MCP connectivity or executes external code. |
+| Change semantic verification impact | `changesets.py`, `context_runtime/semantic.py`, `trellis_execution.py` | v0.19.7 wide-impact escalation plus v0.19.6 adaptive routing and verification reuse regressions | Semantic impact is advisory and escalation-only; parse failure cannot lower a level; output exposes counts only and never satisfies a Trellis gate. |
 | Change adaptive Trellis risk or command selection | `trellis_execution.py`, `verification.py`, `resume.py`, `application.py`, `dashboard.py`, host guidance | `test_v196_adaptive_trellis_execution.py` plus progressive-verification, facade, status-size, Dashboard and MCP regressions | Read only bounded safe task metadata; invalid metadata fails closed; recommend exactly one host check; exact success reuses, unchanged failure does not loop; never execute tests, write `.trellis/`, expose task bodies, satisfy a native gate, or add an MCP tool. |
 | Change unified facade or native escape disclosure | `facade.py`, `resume.py`, `gates.py`, `application.py`, `dashboard.py`, onboarding/MCP guidance | `test_v195_unified_facade.py` plus task continuity, gate, host-rule and Dashboard regressions | Daily next/recovery stays in HelloDev; Trellis remains authoritative; generic escape count covers only HelloDev receipts; external direct CLI visibility stays unavailable; no adapter call during projection. |
 | Change request-level repository reuse or lazy status | `context_runtime/native.py`, `application.py`, `changesets.py`, `verification.py` | `test_v194_end_to_end_efficiency.py` plus ChangeSet/verification stale-evidence suites | Reuse only immutable snapshots inside one synchronous read request; never span write intents; absent state may skip inventory but existing evidence must remain current-bound. |

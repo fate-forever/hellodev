@@ -1,9 +1,17 @@
 # HelloDev Core open questions
 
 Last refreshed: 2026-07-27
-Scope: HelloDev 0.19.6 adaptive Trellis execution
+Scope: HelloDev 0.19.7 semantic context and conservative impact analysis
 
 Release status, artifact hashes, and immutable evidence belong in the root development ledger and the versioned release report. The checks below are the reusable gate for any source change; this orientation file does not duplicate mutable artifact hashes.
+
+## 0.19.7 decisions and open boundaries
+
+- Native semantic retrieval is deliberately Python-only and AST-based. It is not an LSP, type checker, call graph or semantics-preserving refactoring engine; other languages and unresolved symbols fall back to lexical retrieval.
+- Serena discovery proves only that an absolute command exists. HelloDev does not inspect host MCP configuration, call Serena, vendor its source, or claim its LSP/JetBrains backend is connected.
+- Change impact uses current Python definitions and syntactic `Name`/`Attribute` references. It can only escalate adaptive verification and cannot lower safety, target tests automatically, or satisfy Trellis gates.
+- Persisted Context Plane state contains strategy, provider and counts only. Real symbol names, queries, repository paths, snippets and reference edges remain ephemeral.
+- Comparative latency, success-rate and trusted token savings versus host-native search and Serena remain unmeasured; a repeated fixed-task A/B harness is future evaluation work.
 
 ## 0.19.6 decisions and open boundaries
 

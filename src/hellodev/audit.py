@@ -137,6 +137,7 @@ def export(root: Path) -> dict[str, Any]:
             "suggestedProvider": repository_tool_state["suggestedProvider"],
             "activationState": repository_tool_state["activationState"],
             "configurationInspected": False,
+            "semanticContext": repository_tool_state["semanticContext"],
         },
         "contextPlane": context_plane_state,
         "verification": verification.summary(root),

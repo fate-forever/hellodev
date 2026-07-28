@@ -7,6 +7,7 @@ from pathlib import Path
 from typing import Any
 
 from . import changesets, contracts, verification, workflow_projection
+from .context_runtime import semantic
 from .project import ProjectError, project_initialized
 
 
@@ -54,7 +55,11 @@ def _bounded_task_metadata(root: Path, native_ref: str) -> tuple[dict[str, Any] 
     }, "task-metadata-ready"
 
 
-def _profile(change_set: dict[str, Any], metadata: dict[str, Any] | None) -> tuple[str, list[str]]:
+def _profile(
+    change_set: dict[str, Any],
+    metadata: dict[str, Any] | None,
+    semantic_impact: dict[str, Any] | None = None,
+) -> tuple[str, list[str]]:
     reasons: list[str] = []
     if metadata is None:
         return "strict", ["task-metadata-invalid"]
@@ -74,6 +79,8 @@ def _profile(change_set: dict[str, Any], metadata: dict[str, Any] | None) -> tup
         reasons.append("deletion-present")
     if changed > 10:
         reasons.append("large-change-set")
+    if isinstance(semantic_impact, dict) and semantic_impact.get("wideImpact") is True:
+        reasons.append("semantic-impact-wide")
     if reasons:
         return "strict", reasons
     docs_only = changed > 0 and int(scopes.get("docs", 0)) == changed and int(scopes.get("code", 0)) == 0
@@ -132,6 +139,7 @@ def status(
     *,
     project_mode: dict[str, Any] | None = None,
     change_set: dict[str, Any] | None = None,
+    semantic_impact: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     """Project one adaptive host check without executing or persisting anything."""
     selected = Path(root)
@@ -142,6 +150,7 @@ def status(
         "trellisAuthority": "task-spec-gate" if mode.get("mode") == "trellis-native" else "not-active",
         "finalGatePolicyPreserved": True,
         "verificationReuse": "exact-command-scope-snapshot",
+        "semanticImpactPolicy": "escalate-only",
         "readOnly": True,
         "executionPerformed": False,
         "persistencePerformed": False,
@@ -167,7 +176,24 @@ def status(
         raise ProjectError("adaptive Trellis execution requires a current Trellis WorkItem")
     metadata, metadata_state = _bounded_task_metadata(selected, current["nativeRef"])
     current_changes = change_set or changesets.summary(selected)
-    profile, reasons = _profile(current_changes, metadata)
+    if semantic_impact is None:
+        inputs = changesets.changed_files_for_analysis(selected)
+        if inputs["state"] == "ready":
+            semantic_impact = semantic.change_impact(inputs["repositoryFiles"], inputs["changedFiles"])
+        else:
+            semantic_impact = {
+                "state": inputs["state"],
+                "provider": "native-python-ast",
+                "changedPythonFileCount": 0,
+                "definedSymbolCount": 0,
+                "referencingFileCount": 0,
+                "crossFileReferenceCount": 0,
+                "parseErrorCount": 0,
+                "wideImpact": False,
+                "rawSymbolsExposed": False,
+                "rawPathsExposed": False,
+            }
+    profile, reasons = _profile(current_changes, metadata, semantic_impact)
     if metadata_state != "task-metadata-ready":
         reasons = [metadata_state, *[item for item in reasons if item != "task-metadata-invalid"]]
     command, level, scope = _command(selected, profile)
@@ -177,6 +203,7 @@ def status(
             "state": "advisory-unavailable",
             "profile": profile,
             "reasonCodes": reasons,
+            "semanticImpact": semantic_impact,
             "taskMetadataState": metadata_state,
             "metadataFieldsConsumed": ["priority", "scope", "status"],
             "requiredLevel": level,
@@ -193,6 +220,7 @@ def status(
         "state": "ready",
         "profile": profile,
         "reasonCodes": reasons,
+        "semanticImpact": semantic_impact,
         "taskMetadataState": metadata_state,
         "metadataFieldsConsumed": ["priority", "scope", "status"],
         "requiredLevel": level,

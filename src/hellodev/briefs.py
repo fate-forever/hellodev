@@ -161,7 +161,7 @@ def _truncate_utf8(text: str, byte_cap: int) -> tuple[str, bool]:
 
 def _context_plane_projection(value: dict[str, Any]) -> dict[str, Any]:
     metrics = value["metrics"]
-    return {
+    projection = {
         **{key: value[key] for key in (
             "schemaVersion", "state", "backend", "scope", "querySha256", "snapshot",
             "snapshotState", "focus", "continuationSession", "continuation", "readOnly", "persistencePerformed",
@@ -181,6 +181,13 @@ def _context_plane_projection(value: dict[str, Any]) -> dict[str, Any]:
             )
         },
     }
+    retrieval = value.get("retrieval")
+    if isinstance(retrieval, dict) and retrieval.get("state") != "not-requested":
+        projection["retrieval"] = {
+            key: retrieval[key]
+            for key in ("strategy", "provider", "state", "reasonCode", "symbolMatchCount")
+        }
+    return projection
 
 
 def _query_context_pack(

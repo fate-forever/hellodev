@@ -64,8 +64,8 @@ async def _exercise(root: Path) -> dict[str, object]:
 
 
 def main() -> int:
-if __version__ != "0.19.6":
-    raise RuntimeError(f"expected installed HelloDev 0.19.6, found {__version__}")
+    if __version__ != "0.19.7":
+        raise RuntimeError(f"expected installed HelloDev 0.19.7, found {__version__}")
     if version("mcp") != "1.28.1":
         raise RuntimeError(f"expected official MCP SDK 1.28.1, found {version('mcp')}")
     with tempfile.TemporaryDirectory() as directory:

@@ -518,7 +518,7 @@ class HelloDevCliTests(unittest.TestCase):
             with opener.open(f"http://127.0.0.1:{port}/api/status", timeout=2) as response:
                 etag = response.headers["ETag"]
                 dashboard = json.loads(response.read().decode("utf-8"))
-            self.assertEqual(dashboard["schemaVersion"], 15)
+            self.assertEqual(dashboard["schemaVersion"], 16)
             self.assertTrue(etag.startswith('"') and etag.endswith('"'))
             cached_request = urllib.request.Request(
                 f"http://127.0.0.1:{port}/api/status",

@@ -125,6 +125,46 @@ def _load(root: Path) -> dict[str, Any] | None:
     return value
 
 
+def changed_files_for_analysis(root: Path) -> dict[str, Any]:
+    """Return in-memory changed files for trusted local analysis only."""
+    baseline = _load(root)
+    if baseline is None:
+        return {
+            "state": "baseline-missing",
+            "repositoryFiles": (),
+            "changedFiles": (),
+            "deletedCount": 0,
+            "scanState": "not-evaluated",
+        }
+    current_snapshot = repository_snapshot(root)
+    if current_snapshot.state != "complete":
+        return {
+            "state": "bounded",
+            "repositoryFiles": (),
+            "changedFiles": (),
+            "deletedCount": 0,
+            "scanState": current_snapshot.state,
+        }
+    base_entries = {item["pathSha256"]: item for item in baseline["entries"]}
+    current_entries = {item["pathSha256"]: item for item in _entries(current_snapshot)}
+    added = set(current_entries) - set(base_entries)
+    deleted = set(base_entries) - set(current_entries)
+    modified = {
+        key
+        for key in set(base_entries) & set(current_entries)
+        if base_entries[key]["contentSha256"] != current_entries[key]["contentSha256"]
+    }
+    changed_current = added | modified
+    selected = tuple(item for item in current_snapshot.files if _path_digest(item.path) in changed_current)
+    return {
+        "state": "ready",
+        "repositoryFiles": current_snapshot.files,
+        "changedFiles": selected,
+        "deletedCount": len(deleted),
+        "scanState": current_snapshot.state,
+    }
+
+
 def summary(root: Path) -> dict[str, Any]:
     baseline = _load(root)
     if baseline is None:
@@ -175,4 +215,6 @@ def summary(root: Path) -> dict[str, Any]:
     }
 
 
-__all__ = ["capture_baseline", "classify_path", "identities", "scope_identity", "summary"]
+__all__ = [
+    "capture_baseline", "changed_files_for_analysis", "classify_path", "identities", "scope_identity", "summary",
+]

@@ -1,12 +1,14 @@
-# HelloDev Core 0.19.6 release checklist
+# HelloDev Core 0.19.7 release checklist
 
-0.19.6 keeps Trellis authoritative underneath while enforcing HelloDev as the
+0.19.7 keeps Trellis authoritative underneath while enforcing HelloDev as the
 daily task, lifecycle, validation and recovery facade. Host rules and MCP
 instructions classify direct Trellis use as an advanced escape hatch; finished
 native work re-enters through `do begin`, strict gate recovery prefers
 `do validate`, and read-only facade diagnostics disclose only HelloDev-observed
-generic escape receipts. It keeps six MCP tools and Dashboard schema v15 /
-Control Center 2.6. Its adaptive Trellis execution projection selects one
+generic escape receipts. It keeps six MCP tools and Dashboard schema v16 /
+Control Center 2.7. Its native semantic retrieval selects exact Python symbols
+without changing the six-tool surface, and semantic impact may only escalate
+adaptive Trellis execution from T1 to T2. The execution projection selects one
 quick/standard/strict host check, reuses exact successful evidence, and refuses
 blind retries of unchanged failures without executing tests or mutating Trellis.
 
@@ -16,7 +18,7 @@ Release, PyPI package or bundled Trellis/Nocturne runtime exists.
 
 ## 1. Version and source boundary
 
-Confirm `0.19.6` agrees in:
+Confirm `0.19.7` agrees in:
 
 - `pyproject.toml` and `src/hellodev/__init__.py`;
 - README, Quick Start and this checklist;
@@ -104,7 +106,7 @@ Verify all of the following:
 - tampered Context Plane state fails closed and cannot smuggle repository text
   through status, audit or Dashboard;
 - MCP continuation uses the cursor without adding a seventh tool;
-- Dashboard schema is 15 / Control Center 2.6 and remains GET/copy-only;
+- Dashboard schema is 16 / Control Center 2.7 and remains GET/copy-only;
 - no Context Plane path executes shell, writes code, authorizes an adapter, or
   changes Trellis/Nocturne authority.
 
@@ -208,7 +210,7 @@ The separate PyPI workflow must:
 
 Source push, tag, Release, asset upload, PyPI publication and user-level install
 are distinct externally visible actions and require the corresponding user
-authorization. The 0.19.6 source push does not create the others.
+authorization. The 0.19.7 source work does not create the others.
 
 ## 7. Validation commands
 
@@ -240,7 +242,7 @@ isolation and copy-only Dashboard contracts.
 Only after every release gate passes may maintainers create a new real directory:
 
 ```text
-outputs/hellodev-core-releases/0.19.6/
+outputs/hellodev-core-releases/0.19.7/
 ├─ source/
 ├─ python/
 ├─ bundles/

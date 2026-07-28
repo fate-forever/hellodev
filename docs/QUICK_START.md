@@ -1,4 +1,4 @@
-# HelloDev 0.19.6 快速上手
+# HelloDev 0.19.7 快速上手
 
 这份指南把 Agent 自动安装和使用放在最前面。正常情况下，你只向 Codex、Cursor 或 Antigravity 描述任务；Agent 负责检查环境、执行 HelloDev、接入项目和跑测试。
 
@@ -7,12 +7,12 @@
 在目标项目打开对应的 Agent 模式，发送下面整段：
 
 ```text
-请使用 HelloDev 0.19.6 完成：<任务>。
+请使用 HelloDev 0.19.7 完成：<任务>。
 验收标准：<测试、行为或交付物>。
 
 请按以下协议持续推进：
 1. 先读取当前项目适用的 AGENTS.md。若项目已有 .trellis/，在规划或修改代码前读取 .trellis/workflow.md，按需读取 .trellis/spec/context/CONTEXT.md，并检查 .trellis/tasks/ 当前任务状态。
-2. 检查本机是否已有 `hellodev 0.19.6`，同时判断它是 self-contained bundle 还是源码/Core 安装。不要重复安装可用环境。
+2. 检查本机是否已有 `hellodev 0.19.7`，同时判断它是 self-contained bundle 还是源码/Core 安装。不要重复安装可用环境。
 3. 若我提供了与平台/版本匹配、SHA-256 可核对的 bundle，优先使用其中 `bin/hellodev.cmd`。否则从 https://github.com/fate-forever/hellodev.git 获取源码，在独立虚拟环境安装 `.[mcp]`。git clone 只含 HelloDev Core，不自带 Trellis、Nocturne、Python 或 Node；不要虚构 bootstrap.ps1、Release 资产或 PyPI 包。
 4. 源码/Core 模式复用本机已有 Trellis/Nocturne。若当前项目没有 .trellis/，先说明初始化会写什么并等待我确认；若 Nocturne 不可用，明确降级为 local-only，不要阻塞普通开发。
 5. 只创建/合并项目级 `.cursor/mcp.json`、`.cursor/rules/hellodev.mdc`、`.codex/config.toml`，或 Antigravity 的 `.agents/mcp_config.json` 与 `.agents/rules/hellodev.md`；不修改用户级全局配置、PATH、注册表、shell profile 或 `~/.gemini`。已有配置冲突时先展示差异。
@@ -35,9 +35,9 @@
 ## 2. Agent 应该自动选择哪条安装路径
 
 ```text
-发现 hellodev 0.19.6？
+发现 hellodev 0.19.7？
 ├─ 是：检查 components status，复用现有安装
-├─ 否，但有已验证的 0.19.6 bundle：核对 SHA-256 -> setup -> onboard
+├─ 否，但有已验证的 0.19.7 bundle：核对 SHA-256 -> setup -> onboard
 └─ 否：git clone Core -> 独立 venv 安装 .[mcp] -> 项目级 onboard
 ```
 
@@ -48,17 +48,21 @@
 | Git clone / Core wheel | HelloDev Python 包 | 不携带；复用外部安装或降级 local-only |
 | 平台 bundle | HelloDev、锁定组件、运行时、licenses/SBOM/source materials | 随包提供，但仍是独立进程和独立数据面 |
 
-0.19.6 保留项目级 Antigravity/Cursor/Codex 接入，并将 Trellis 收敛为 HelloDev 后台权威和明确的高级 escape hatch。Trellis-backed 工作应执行 `next` 返回的唯一自适应检查；`reused-success` 表示无需重跑，开发中不要反复执行 full gate，最终 `do validate` 仍是权威验收。当前实现的平台 bundle 目标是 **Windows x86_64**；只有 Release 页面真实提供同版本 archive 和 SHA-256 时，Agent 才能选择 bundle 路径。Git 仓库、旧版 ZIP 或本地构建目录都不能冒充 0.19.6 发布 bundle。本文不宣称 HelloDev 0.19.6 已发布到 PyPI。
+0.19.7 保留项目级 Antigravity/Cursor/Codex 接入，并将精确 Python 符号查询收敛到原生 Context Plane。Serena 可被发现但不会自动安装、连接或执行；普通查询仍走词法检索。Trellis-backed 工作应执行 `next` 返回的唯一自适应检查；语义影响只能把 T1 升级为 T2，最终 `do validate` 仍是权威验收。当前实现的平台 bundle 目标是 **Windows x86_64**；只有 Release 页面真实提供同版本 archive 和 SHA-256 时，Agent 才能选择 bundle 路径。Git 仓库、旧版 ZIP 或本地构建目录都不能冒充 0.19.7 发布 bundle。本文不宣称 HelloDev 0.19.7 已发布到 PyPI。
+
+### Context Plane：精确符号优先，其他查询自动回退
+
+当 Agent 已知 Python 符号名时，可以直接查询 `ProjectClient.context` 这类限定名；HelloDev 使用内置 AST 返回目标定义。普通任务描述、中文领域词和非 Python 项目保持原有词法检索，不会为了每次查询强制建立 AST 索引。发现 Serena 只表示外部命令存在，不表示 MCP 已连接；HelloDev 不自动调用它，也不会把 Serena 的写工具当成授权。
 
 ### Context Plane：不用另装 FastCtx
 
-HelloDev 0.19.4 继续使用原生 Context Plane 提供完整的只读仓库发现、查询、预算控制和续读能力。通常由 `do begin` 返回精确的 `contextPlan.command`；手工等价命令是：
+HelloDev 0.19.7 继续使用原生 Context Plane 提供完整的只读仓库发现、查询、预算控制和续读能力。通常由 `do begin` 返回精确的 `contextPlan.command`；手工等价命令是：
 
 ```powershell
 hellodev --root . context pack --intent code --query "<当前任务描述>" --scope code --token-budget 1200
 ```
 
-0.19.4 只在 query 明确包含完整 package identity 时聚焦；普通领域词、package 描述和当前 cwd 不会隐式缩小跨包范围。首屏返回 `focus`，续页返回 `continuationSession`；命中会话时不会重复 scan/rank，进程重启、TTL/容量淘汰或元数据变化时会严格重建。完整 MCP 响应受 byte envelope 约束。Agent 不应机械追完所有 continuation：首屏足够时，应转为宿主原生精确读取。
+0.19.7 只在 query 明确包含完整 package identity 时聚焦；普通领域词、package 描述和当前 cwd 不会隐式缩小跨包范围。精确 Python 符号查询优先使用有界 AST 检索，其余请求走词法回退。首屏返回 `focus`，续页返回 `continuationSession`；命中会话时不会重复 scan/rank，进程重启、TTL/容量淘汰或元数据变化时会严格重建。完整 MCP 响应受 byte envelope 约束。Agent 不应机械追完所有 continuation：首屏足够时，应转为宿主原生精确读取。
 
 若结果为 partial，Agent 使用 continuation 中的 cursor 继续读取，不重复上一页。仓库变化后旧 cursor 会被拒绝，Agent 应以同一 query 重新开始。`.hellodev/state/context-plane.json` 只保存 metrics/hash，不保存 query、路径或源码正文。
 
@@ -253,16 +257,16 @@ C:\Tools\hellodev\.venv\Scripts\hellodev.exe --root . onboard --host codex
 仅在同版本 Release 资产存在且哈希可核对时使用：
 
 ```powershell
-Get-FileHash .\hellodev-0.19.6-windows-x86_64.zip -Algorithm SHA256
+Get-FileHash .\hellodev-0.19.7-windows-x86_64.zip -Algorithm SHA256
 # 将结果与 Release 页提供的精确 SHA-256 比较后再解压
 
-cd C:\Tools\hellodev-0.19.6-windows-x86_64
+cd C:\Tools\hellodev-0.19.7-windows-x86_64
 .\bin\hellodev.cmd --version
 .\bin\hellodev.cmd components verify
 .\bin\hellodev.cmd setup
 
 cd C:\path\to\project
-C:\Tools\hellodev-0.19.6-windows-x86_64\bin\hellodev.cmd onboard --host cursor --with-trellis
+C:\Tools\hellodev-0.19.7-windows-x86_64\bin\hellodev.cmd onboard --host cursor --with-trellis
 ```
 
 `onboard`：
@@ -315,7 +319,7 @@ hellodev dashboard status
 hellodev dashboard stop
 ```
 
-Control Center 2.6 只读、copy-only。默认“现在”页显示一个解析后的当前任务和一条下一步；统一门面状态和内部 local/Trellis/WorkItem 计数移到环境详情。还可查看严格优先级恢复、LessonProposal、Recall 回执、宿主环境、Context Plane、效率和审计。页面不执行 Trellis/Nocturne/FastCtx、不显示 query/path/源码正文、不接收 approval token；访问 token 只用于本次 loopback 服务。后台轮询在页面隐藏时暂停，重复状态可通过 ETag/304 复用。
+Control Center 2.7 只读、copy-only。默认“现在”页显示一个解析后的当前任务和一条下一步；统一门面状态和内部 local/Trellis/WorkItem 计数移到环境详情。还可查看严格优先级恢复、LessonProposal、Recall 回执、宿主环境、Context Plane 检索策略、效率和审计。页面不执行 Trellis/Nocturne/FastCtx/Serena、不显示 query、符号名、path 或源码正文、不接收 approval token；访问 token 只用于本次 loopback 服务。后台轮询在页面隐藏时暂停，重复状态可通过 ETag/304 复用。
 
 ### 事务恢复与 checkpoint
 

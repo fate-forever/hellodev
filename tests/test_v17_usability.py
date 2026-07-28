@@ -127,7 +127,7 @@ class V17UsabilityTests(unittest.TestCase):
             root = Path(directory)
             ProjectClient(root).do("begin", {"goal": "Dashboard task"})
             value = dashboard.snapshot(root, "instance", "started")
-            self.assertEqual(value["schemaVersion"], 15)
+            self.assertEqual(value["schemaVersion"], 16)
             self.assertEqual(value["currentTask"]["title"], "Dashboard task")
             self.assertEqual(value["now"]["currentTask"]["id"], value["currentTask"]["id"])
             self.assertEqual(value["tasks"], {"localCount": 1, "trellisActiveCount": 0, "linkedWorkItemCount": 1})

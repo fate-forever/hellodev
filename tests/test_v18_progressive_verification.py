@@ -155,7 +155,7 @@ class V18ProgressiveVerificationTests(unittest.TestCase):
             self.assertEqual(len(TOOL_NAMES), 6)
             self.assertIn("hellodev_do", TOOL_NAMES)
             control = dashboard.snapshot(root, "instance", "started")
-            self.assertEqual(control["schemaVersion"], 15)
+            self.assertEqual(control["schemaVersion"], 16)
             self.assertEqual(control["verification"]["sourceTrust"], "host-asserted")
             self.assertFalse(control["verification"]["rawCommandPersisted"])
 

@@ -1,4 +1,4 @@
-# HelloDev Core 0.19.6
+# HelloDev Core 0.19.7
 
 HelloDev 是面向 Codex、Cursor 等编码 Agent 的本地开发编排框架。它用一套稳定入口连接项目工作流、长期知识、授权回执、恢复和效率治理：
 
@@ -14,12 +14,12 @@ HelloDev 是面向 Codex、Cursor 等编码 Agent 的本地开发编排框架。
 打开目标项目，让 Codex、Cursor 或 Antigravity Agent 直接执行安装、接入和开发。你只需要替换任务与验收标准：
 
 ```text
-请使用 HelloDev 0.19.6 完成：<任务>。
+请使用 HelloDev 0.19.7 完成：<任务>。
 验收标准：<测试、行为或交付物>。
 
 执行协议：
 1. 先读取当前项目适用的 AGENTS.md。若项目已有 .trellis/，在规划或改代码前读取 .trellis/workflow.md，按需读取 .trellis/spec/context/CONTEXT.md，并检查 .trellis/tasks/ 当前状态。
-2. 先检查本机是否已有可用的 hellodev 0.19.6。若有用户提供且 SHA-256 可核对的同版本 Windows bundle，优先使用其 bin/hellodev.cmd；否则从 https://github.com/fate-forever/hellodev.git 获取源码，在独立虚拟环境安装 `.[mcp]`。不要声称 git clone 自带 Trellis、Nocturne、Python 或 Node。
+2. 先检查本机是否已有可用的 hellodev 0.19.7。若有用户提供且 SHA-256 可核对的同版本 Windows bundle，优先使用其 bin/hellodev.cmd；否则从 https://github.com/fate-forever/hellodev.git 获取源码，在独立虚拟环境安装 `.[mcp]`。不要声称 git clone 自带 Trellis、Nocturne、Python 或 Node。
 3. 源码/Core 模式下，复用本机已安装的 Trellis/Nocturne；找不到时明确降级为 local-only，除非我另行同意安装组件。不要虚构 bootstrap.ps1、Release 资产或 PyPI 包。
 4. 只写项目级 Codex/Cursor/Antigravity 接入配置；不要修改 PATH、注册表、shell profile 或用户级全局配置。遇到已有且冲突的 MCP 配置时先说明差异。
 5. 先运行项目级 `hellodev onboard --host <antigravity|cursor|codex>`，再执行 `open` 与 `do begin --goal "<任务>" --acceptance "<标准>"`。执行 begin 返回的有界 contextPlan 后继续 `next`/`do`；中断后用 `resume`。不要让我手工输入普通 CLI。
@@ -32,7 +32,18 @@ HelloDev 是面向 Codex、Cursor 等编码 Agent 的本地开发编排框架。
 
 这是推荐入口。完整的新项目提示词、Cursor/Codex 接入方式和故障处理见 [Quick Start](docs/QUICK_START.md)。
 
-> **发行事实：** Git 仓库只包含 HelloDev Core 源码，不包含 Trellis/Nocturne/FastCtx 上游源码、Python/Node 运行时或可下载的一体包。0.19.6 在 HelloDev 门面内增加自适应 Trellis 验证，但 Trellis 仍是后台权威与高级 escape hatch；自包含 bundle 只有在作为独立 Release 资产发布并提供匹配 SHA-256 后才能按 bundle 使用。本文不宣称 HelloDev 0.19.6 已发布到 PyPI。
+> **发行事实：** Git 仓库只包含 HelloDev Core 源码，不包含 Trellis/Nocturne/FastCtx/Serena 上游源码、Python/Node 运行时或可下载的一体包。0.19.7 在原生 Context Plane 内增加只读 Python AST 符号检索和保守语义影响提示；Serena 只是可选的宿主管理能力，不会被自动安装或执行。自包含 bundle 只有在作为独立 Release 资产发布并提供匹配 SHA-256 后才能按 bundle 使用。本文不宣称 HelloDev 0.19.7 已发布到 PyPI。
+
+## 0.19.7：语义上下文与保守影响分析
+
+0.19.7 将 Serena 值得借鉴的“符号优先”思路内化到 HelloDev，而不复制 Serena 或重写 LSP：
+
+- 明确的 Python 符号查询（如 `ProjectClient.context`）使用依赖零的 AST 定位并只返回目标定义；普通自然语言查询和非 Python 项目继续使用原有词法检索。
+- 符号结果沿用 Context Plane 的根目录、敏感文件、字节预算、哈希、游标和无正文持久化边界；持久状态只记录策略与计数。
+- Serena 安装仅作为 `available-not-connected` 能力被发现；HelloDev 不读取宿主 MCP 配置、不声称连接成功，也不增加日常 MCP 工具。
+- 变更符号被多个 Python 文件引用时，语义影响只能把普通 `T1` 检查升级为 `T2`，不能降低既有验证级别或满足 Trellis gate。
+
+Agent 已知精确符号时可直接请求 `hellodev_context`；小型已知文件修改仍可使用宿主原生精确读取，不要求每次任务都建立 AST 索引。
 
 ## 0.19.6：自适应 Trellis 执行
 
@@ -234,7 +245,7 @@ py -3.12 -m venv .venv
 .\.venv\Scripts\hellodev.exe --version
 ```
 
-预期版本是 `hellodev 0.19.6`。Python 3.10–3.12 均受源码测试矩阵覆盖。`mcp` extra 用于 Codex/Cursor/Antigravity 的 stdio MCP 接入；只使用 CLI 时可安装 `.`。
+预期版本是 `hellodev 0.19.7`。Python 3.10–3.12 均受源码测试矩阵覆盖。`mcp` extra 用于 Codex/Cursor/Antigravity 的 stdio MCP 接入；只使用 CLI 时可安装 `.`。
 
 在目标项目初始化：
 
@@ -257,15 +268,15 @@ hellodev_status    hellodev_context    hellodev_resume
 从 Release 页面取得与平台匹配的 archive 和 SHA-256，核对后解压到真实目录：
 
 ```powershell
-Get-FileHash .\hellodev-0.19.6-windows-x86_64.zip -Algorithm SHA256
-cd C:\Tools\hellodev-0.19.6-windows-x86_64
+Get-FileHash .\hellodev-0.19.7-windows-x86_64.zip -Algorithm SHA256
+cd C:\Tools\hellodev-0.19.7-windows-x86_64
 .\bin\hellodev.cmd components verify
 .\bin\hellodev.cmd setup
 cd C:\path\to\your-project
-C:\Tools\hellodev-0.19.6-windows-x86_64\bin\hellodev.cmd onboard --host cursor --with-trellis
+C:\Tools\hellodev-0.19.7-windows-x86_64\bin\hellodev.cmd onboard --host cursor --with-trellis
 ```
 
-若对应 0.19.6 bundle 尚未发布，不要把源码仓库当作 bundle，也不要把旧版本 archive 改名冒充。`components verify` 证明本地字节与随包 manifest 一致，不等于数字签名、远程来源证明或法律审查。
+若对应 0.19.7 bundle 尚未发布，不要把源码仓库当作 bundle，也不要把旧版本 archive 改名冒充。`components verify` 证明本地字节与随包 manifest 一致，不等于数字签名、远程来源证明或法律审查。
 
 ## Trellis 与 Nocturne 如何接入
 
@@ -466,7 +477,7 @@ hellodev dashboard status
 hellodev dashboard stop
 ```
 
-Control Center 2.6 默认先回答“当前任务是什么、阻塞是什么、唯一下一步是什么”，再渐进披露统一门面状态、内部任务计数、恢复中心、知识生命周期、Recall 回执、宿主兼容性、Context Plane metrics、渐进验证、效率和审计摘要。它使用短时请求缓存、ETag/304、隐藏页暂停轮询与有界列表；不会展示 Context Plane query/path/源码正文，不会在浏览器中执行命令或接收 approval token，复制出的命令仍回到 Agent/终端并遵守授权协议。
+Control Center 2.7 默认先回答“当前任务是什么、阻塞是什么、唯一下一步是什么”，再渐进披露统一门面状态、内部任务计数、恢复中心、知识生命周期、Recall 回执、宿主兼容性、Context Plane metrics、语义检索策略、渐进验证、效率和审计摘要。它使用短时请求缓存、ETag/304、隐藏页暂停轮询与有界列表；不会展示 Context Plane query、符号名、path 或源码正文，不会在浏览器中执行命令或接收 approval token，复制出的命令仍回到 Agent/终端并遵守授权协议。
 
 ## 开发与验证
 

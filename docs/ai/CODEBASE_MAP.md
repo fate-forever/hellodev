@@ -1,7 +1,14 @@
 # HelloDev Core codebase map
 
 Last refreshed: 2026-07-27
-Scope: HelloDev 0.19.6 adaptive Trellis execution
+Scope: HelloDev 0.19.7 semantic context and conservative impact analysis
+
+## 0.19.7 semantic context implementation map
+
+- `context_runtime/semantic.py` provides dependency-free Python AST definition retrieval and count-only cross-file impact analysis. Explicit symbol-shaped queries opt in; all other queries retain lexical retrieval. _Implemented with bounded snippets and cache limits._
+- `context_runtime/planner.py` runs semantic retrieval inside the existing root-bound snapshot, pagination and byte-budget contract. Context state schema 2 persists strategy/counts only. _Implemented without raw query, symbol, path or source persistence._
+- `repository_tools.py` discovers Serena as an optional host-managed capability without inspecting MCP configuration or claiming connectivity. Native Python AST remains active and Serena write tools inherit no workflow, memory or verification authority. _Implemented read-only discovery._
+- `trellis_execution.py` consumes count-only semantic impact as an escalation-only signal. Wide cross-file references may raise T1 to T2; no semantic result can reduce a gate or satisfy final validation. _Implemented conservatively._
 
 ## Source and runtime boundaries
 

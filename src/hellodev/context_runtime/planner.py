@@ -16,6 +16,7 @@ from typing import Any
 
 from ..project import ProjectError, ProjectPaths, utc_now, write_json
 from . import cursor as cursor_contract
+from . import semantic
 from .contracts import RepositoryFile, RepositoryMarker
 from .native import EXCLUDED_DIRECTORIES, metadata_unchanged, snapshot
 
@@ -57,6 +58,7 @@ class _ResultSession:
     scanned_file_count: int
     scanned_bytes: int
     skipped: tuple[tuple[str, int], ...]
+    retrieval: dict[str, Any]
     byte_size: int
 
 
@@ -329,7 +331,7 @@ def _state_path(root: Path) -> Path:
 def _record(root: Path, result: dict[str, Any]) -> None:
     metrics = result["metrics"]
     value = {
-        "schemaVersion": 1,
+        "schemaVersion": 2,
         "updatedAt": utc_now(),
         "backend": result["backend"],
         "state": result["state"],
@@ -337,6 +339,7 @@ def _record(root: Path, result: dict[str, Any]) -> None:
         "querySha256": result["querySha256"],
         "scope": result["scope"],
         "metrics": metrics,
+        "retrieval": result["retrieval"],
         "continuationAvailable": result["continuation"] is not None,
         "rawContentPersisted": False,
     }
@@ -353,11 +356,16 @@ def status(root: Path) -> dict[str, Any]:
         value = json.loads(path.read_text(encoding="utf-8"))
     except (OSError, json.JSONDecodeError) as error:
         raise ProjectError(f"invalid Context Plane state: {error}") from error
-    allowed = {
+    allowed_v1 = {
         "schemaVersion", "updatedAt", "backend", "state", "snapshot", "querySha256", "scope",
         "metrics", "continuationAvailable", "rawContentPersisted",
     }
-    if not isinstance(value, dict) or value.get("schemaVersion") != 1 or set(value) != allowed:
+    allowed_v2 = allowed_v1 | {"retrieval"}
+    if (
+        not isinstance(value, dict)
+        or value.get("schemaVersion") not in {1, 2}
+        or set(value) != (allowed_v2 if value.get("schemaVersion") == 2 else allowed_v1)
+    ):
         raise ProjectError("invalid Context Plane state schema")
     metrics = value.get("metrics")
     metric_keys = {
@@ -396,7 +404,28 @@ def status(root: Path) -> dict[str, Any]:
         )
     ):
         raise ProjectError("invalid Context Plane metrics values")
-    projection = {key: value[key] for key in allowed}
+    if value["schemaVersion"] == 2:
+        retrieval = value.get("retrieval")
+        retrieval_keys = {
+            "strategy", "provider", "state", "reasonCode", "symbolMatchCount",
+            "parsedFileCount", "parseErrorCount", "cacheHit",
+        }
+        if (
+            not isinstance(retrieval, dict)
+            or set(retrieval) != retrieval_keys
+            or retrieval.get("strategy") not in {"lexical", "symbol"}
+            or retrieval.get("provider") not in {"native-lexical", "native-python-ast"}
+            or retrieval.get("state") not in {"matched", "fallback", "not-requested"}
+            or not isinstance(retrieval.get("reasonCode"), str)
+            or len(retrieval["reasonCode"]) > 64
+            or any(
+                type(retrieval.get(key)) is not int or not 0 <= retrieval[key] <= 100_000_000
+                for key in ("symbolMatchCount", "parsedFileCount", "parseErrorCount")
+            )
+            or type(retrieval.get("cacheHit")) is not bool
+        ):
+            raise ProjectError("invalid Context Plane retrieval state")
+    projection = {key: value[key] for key in (allowed_v2 if value["schemaVersion"] == 2 else allowed_v1)}
     return {"state": "ready", "backend": "native", "lastQuery": projection, "rawContentPersisted": False}
 
 
@@ -458,19 +487,51 @@ def build_context(
         scanned_file_count = session.scanned_file_count
         scanned_bytes = session.scanned_bytes
         skipped = session.skipped
+        retrieval = dict(session.retrieval)
         result_session = session.identifier
     else:
         repository = snapshot(focus_root)
         if cursor_value is not None and cursor_value["snapshot"] != repository.snapshot_id:
             raise ProjectError("context cursor is stale because repository content changed")
-        candidates = []
-        for file in repository.files:
-            if not _in_scope(file, scope):
-                continue
-            item = _rank(file, query, terms)
-            if item is not None:
-                item["path"] = _project_path(focus_relative, item["path"])
-                candidates.append(item)
+        scoped_files = tuple(file for file in repository.files if _in_scope(file, scope))
+        semantic_candidates, semantic_state = (
+            semantic.find_definitions(scoped_files, query, focus_relative)
+            if scope != "docs"
+            else ([], {
+                "state": "not-requested", "provider": "native-python-ast",
+                "reasonCode": "docs-scope", "parsedFileCount": 0,
+                "parseErrorCount": 0, "matchCount": 0, "cacheHit": False,
+            })
+        )
+        if semantic_candidates:
+            candidates = semantic_candidates
+            retrieval = {
+                "strategy": "symbol",
+                "provider": semantic_state["provider"],
+                "state": semantic_state["state"],
+                "reasonCode": semantic_state["reasonCode"],
+                "symbolMatchCount": semantic_state["matchCount"],
+                "parsedFileCount": semantic_state["parsedFileCount"],
+                "parseErrorCount": semantic_state["parseErrorCount"],
+                "cacheHit": semantic_state["cacheHit"],
+            }
+        else:
+            candidates = []
+            for file in scoped_files:
+                item = _rank(file, query, terms)
+                if item is not None:
+                    item["path"] = _project_path(focus_relative, item["path"])
+                    candidates.append(item)
+            retrieval = {
+                "strategy": "lexical",
+                "provider": "native-lexical",
+                "state": semantic_state["state"],
+                "reasonCode": semantic_state["reasonCode"],
+                "symbolMatchCount": 0,
+                "parsedFileCount": semantic_state["parsedFileCount"],
+                "parseErrorCount": semantic_state["parseErrorCount"],
+                "cacheHit": semantic_state["cacheHit"],
+            }
         candidates.sort(key=lambda item: (-item["score"], item["path"], item["startLine"]))
         snapshot_id = repository.snapshot_id
         snapshot_state = repository.state
@@ -522,6 +583,7 @@ def build_context(
                 scanned_file_count=scanned_file_count,
                 scanned_bytes=scanned_bytes,
                 skipped=skipped,
+                retrieval=dict(retrieval),
                 byte_size=_session_bytes(candidate_tuple, markers),
             )
             session_cached = _store_session(session_value)
@@ -552,6 +614,7 @@ def build_context(
             "root": focus_relative,
             "projectRoot": focus_relative == ".",
         },
+        "retrieval": retrieval,
         "continuationSession": {
             "hit": session_hit,
             "reconstructed": reconstructed,
