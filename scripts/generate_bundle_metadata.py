@@ -186,7 +186,7 @@ def main() -> int:
         "SPDXID": "SPDXRef-DOCUMENT",
         "name": "HelloDev-0.19.7-windows-x86_64",
         "documentNamespace": "https://github.com/fate-forever/hellodev/sbom/0.19.7/windows-x86_64",
-        "creationInfo": {"created": "2026-07-20T00:00:00Z", "creators": ["Tool: hellodev-generate-bundle-metadata"]},
+        "creationInfo": {"created": "2026-07-28T00:00:00Z", "creators": ["Tool: hellodev-generate-bundle-metadata"]},
         "packages": spdx_packages,
         "relationships": relationships,
     }

@@ -186,7 +186,7 @@ declared archive verify:
 - Nocturne writable state stays outside the immutable bundle;
 - no global host config, PATH, registry, shell profile or existing DB changes.
 
-For 0.14.x, Windows x86_64 is the only implemented archive target. It becomes
+Windows x86_64 is the only implemented platform-bundle target. It becomes
 publicly supported for a specific version only after its exact final ZIP passes
 offline smoke and the matching SHA-256 is published with the asset. Fixture
 tests and a local unpublished archive are insufficient.
