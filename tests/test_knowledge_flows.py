@@ -18,6 +18,19 @@ FAKE_MCP_SERVER = Path(__file__).resolve().parent / "fixtures" / "fake_mcp_serve
 
 
 class KnowledgeFlowTests(unittest.TestCase):
+    def test_python_310_fallback_reads_bounded_pep621_project_name(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            init_project(root)
+            (root / "pyproject.toml").write_text(
+                "[tool.example]\nname = 'wrong'\n[project]\nname = \"Study Companion\"\n",
+                encoding="utf-8",
+            )
+            with patch("hellodev.knowledge_flows.tomllib", None):
+                scope = knowledge_flows._project_recall_scope(root)
+            self.assertEqual(scope["namespaceScope"], "project-study-companion")
+            self.assertEqual(scope["source"], "pyproject")
+
     def test_local_recall_strong_weak_and_no_hit_are_deterministic(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)

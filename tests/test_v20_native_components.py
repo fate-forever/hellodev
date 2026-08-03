@@ -74,8 +74,9 @@ class NativeComponentProtocolTests(unittest.TestCase):
             root = Path(directory)
             init_project(root)
             configure_nocturne(root, sys.executable, [str(FAKE_MCP_SERVER)], root)
+            executable = str(Path(sys.executable).resolve())
             base = {
-                "mode": "stdio", "source": "external", "command": sys.executable,
+                "mode": "stdio", "source": "external", "command": executable,
                 "args": [str(FAKE_MCP_SERVER)], "cwd": str(root), "environment": {},
                 "protocolVersion": "hellodev.component/v1", "component": "hellodev@nocturne",
             }

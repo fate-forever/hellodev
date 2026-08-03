@@ -5,9 +5,13 @@ from __future__ import annotations
 import hashlib
 import json
 import re
-import tomllib
 from pathlib import Path
 from typing import Any
+
+try:
+    import tomllib
+except ModuleNotFoundError:  # Python 3.10 compatibility without a runtime dependency.
+    tomllib = None  # type: ignore[assignment]
 
 from . import intelligence, receipts
 from .adapters import nocturne
@@ -34,6 +38,9 @@ MEMORY_INJECTION_PATTERN = re.compile(
     re.IGNORECASE,
 )
 PROJECT_SCOPE_TOKEN = re.compile(r"[^A-Za-z0-9._/-]+")
+TOML_SECTION = re.compile(r"^\s*\[([^]]+)]\s*(?:#.*)?$")
+TOML_BASIC_NAME = re.compile(r'^\s*name\s*=\s*"([^"\\]*)"\s*(?:#.*)?$')
+TOML_LITERAL_NAME = re.compile(r"^\s*name\s*=\s*'([^']*)'\s*(?:#.*)?$")
 
 
 def _query(value: str) -> str:
@@ -158,11 +165,15 @@ def _project_recall_scope(root: Path) -> dict[str, Any]:
     package_json = root / "package.json"
     if pyproject.is_file() and not pyproject.is_symlink() and pyproject.stat().st_size <= 64 * 1024:
         try:
-            value = tomllib.loads(pyproject.read_text(encoding="utf-8"))
-            candidate = value.get("project", {}).get("name") if isinstance(value, dict) else None
+            text = pyproject.read_text(encoding="utf-8")
+            if tomllib is not None:
+                value = tomllib.loads(text)
+                candidate = value.get("project", {}).get("name") if isinstance(value, dict) else None
+            else:
+                candidate = _python_310_project_name(text)
             if isinstance(candidate, str):
                 name, source = candidate, "pyproject"
-        except (OSError, UnicodeError, tomllib.TOMLDecodeError):
+        except (OSError, UnicodeError, ValueError):
             pass
     if name is None and package_json.is_file() and not package_json.is_symlink() and package_json.stat().st_size <= 64 * 1024:
         try:
@@ -186,6 +197,23 @@ def _project_recall_scope(root: Path) -> dict[str, Any]:
         "domainSource": "technical-memory-default",
         "namespaceEnforcement": "audit-only-upstream-contract-unavailable",
     }
+
+
+def _python_310_project_name(text: str) -> str | None:
+    """Read only a simple PEP 621 project name when tomllib is unavailable."""
+    section: str | None = None
+    for line in text.splitlines():
+        section_match = TOML_SECTION.fullmatch(line)
+        if section_match:
+            section = section_match.group(1).strip()
+            continue
+        if section != "project":
+            continue
+        for pattern in (TOML_BASIC_NAME, TOML_LITERAL_NAME):
+            match = pattern.fullmatch(line)
+            if match:
+                return match.group(1)
+    return None
 
 
 def _runtime_recall_terms(root: Path, query: str) -> list[str]:
