@@ -1,0 +1,159 @@
+{
+  "schemaVersion": 1,
+  "evaluatedAt": "2026-08-03",
+  "task": "production-p1-weekly-goals-and-shared-review",
+  "privacyBoundary": "This summary reconstructs observable decisions from Agent status messages, commands, patches, test results, telemetry, and persisted state. It does not reproduce private chain-of-thought or hidden reasoning text.",
+  "validRuns": [
+    "direct-r2",
+    "hellodev-0.20.9-trellis"
+  ],
+  "excludedRuns": [
+    {
+      "id": "direct",
+      "reason": "Codex interruption occurred before finish-run.ps1, so elapsed downtime contaminated the timer."
+    }
+  ],
+  "groups": {
+    "direct": {
+      "agent": {
+        "path": "/root/p1_0209_direct_r2",
+        "nickname": "Kierkegaard"
+      },
+      "candidate": "benchmarks/production_p1_0209_ab/direct_r2",
+      "durationMs": 1681293.28,
+      "observableTrajectory": {
+        "customToolCalls": 51,
+        "shellCalls": 26,
+        "applyPatchCalls": 25,
+        "tokenCountEvents": 75,
+        "toolWallTimeSeconds": 143.74,
+        "nonToolModelTimeSeconds": 1537.55,
+        "firstGateAttemptAt": "2026-08-03T02:48:44.722Z",
+        "secondsToFirstGateAttempt": 421.61,
+        "patchesBeforeFirstGate": 5,
+        "patchesAfterFirstGate": 20
+      },
+      "decisionReconstruction": [
+        "Mapped the existing domain, backend, UI, and Supabase surfaces directly from TASK.md and repository files.",
+        "Created the weekly-goal domain model and tests first, then extended local and Supabase backend contracts.",
+        "Attempted typecheck early after five patches, before the full UI, database types, migration, and integration wiring was complete.",
+        "Used the remaining closure phase for substantial second-pass UI, persistence, schema, migration, and test work, followed by repeated unit and integration gates."
+      ],
+      "completedContent": [
+        "weekly-goal validation, week calculations, overload guidance, goal/suggestion/milestone models and domain tests",
+        "backend contracts and local persistence",
+        "Supabase backend, generated-style database types, and additive migration",
+        "learner creation, task confirmation, progress, rollover, supporter suggestions, fixed responses, and milestone handling UI",
+        "local workflow and privacy tests"
+      ],
+      "quality": {
+        "mandatoryJudgeGates": "4/4",
+        "staticDiscoverySignals": "10/10",
+        "unitComponentTestsPassed": 66,
+        "integrationTestsPassed": 29,
+        "externalE2e": "14/16"
+      },
+      "tokenUsage": {
+        "inputTokens": 6777928,
+        "cachedInputTokens": 6557952,
+        "uncachedInputTokens": 219976,
+        "outputTokens": 38582,
+        "reasoningOutputTokens": 4145,
+        "totalTokens": 6816510,
+        "uncachedInputPlusOutput": 258558,
+        "measurement": "exact-runtime-observed",
+        "attestation": "none"
+      },
+      "rawObservableTrajectory": "docs/evaluations/raw/hellodev-0209-production-p1-direct-r2-observable-trajectory.json",
+      "publicObservableTrajectory": "docs/evaluations/public/hellodev-0209-production-p1-direct-r2-observable-trajectory.json"
+    },
+    "treatment": {
+      "agent": {
+        "path": "/root/p1_0209_hellodev",
+        "nickname": "Chandrasekhar"
+      },
+      "candidate": "benchmarks/production_p1_0209_ab/hellodev",
+      "durationMs": 1508397.69,
+      "observableTrajectory": {
+        "customToolCalls": 86,
+        "shellCalls": 59,
+        "applyPatchCalls": 27,
+        "tokenCountEvents": 113,
+        "toolWallTimeSeconds": 210.38,
+        "nonToolModelTimeSeconds": 1298.02,
+        "firstGateAttemptAt": "2026-08-03T03:22:12.071Z",
+        "secondsToFirstGateAttempt": 691.51,
+        "patchesBeforeFirstGate": 18,
+        "patchesAfterFirstGate": 9
+      },
+      "decisionReconstruction": [
+        "Discovered and followed project-local AGENTS.md and Trellis workflow files before product implementation.",
+        "Bound the exact TASK.md to the AcceptanceContract and created Trellis PRD, design, implementation, and check records.",
+        "Front-loaded domain, local backend, Supabase types/backend/migration, learner UI, supporter UI, and responsive styling before the first typecheck.",
+        "Added integration and migration-contract coverage after the first unit gate, including explicit first-accepted/second-rejected one-time milestone response behavior.",
+        "Ran build, E2E, secrets, diff, and final gates; corrected the Monday previous-week navigation defect without weakening assertions.",
+        "Recorded four host assertions, validated Trellis context, refreshed stale capability state, passed check, obtained write approval, and finished all linked state."
+      ],
+      "completedContent": [
+        "weekly-goal domain, tests, backend contract, and local persistence",
+        "Supabase backend/types and additive RLS/RPC migration",
+        "learner creation, explicit schedule confirmation, overload hint, review, and roll-forward UI",
+        "supporter aggregate-only review, consent-gated suggestions, fixed gentle responses, and one-time milestone response",
+        "responsive styles, integration tests, migration contract tests, and Monday E2E boundary fix",
+        "durable Trellis privacy and E2E guidance plus finished HelloDev/Trellis closure evidence"
+      ],
+      "quality": {
+        "mandatoryJudgeGates": "4/4",
+        "staticDiscoverySignals": "10/10",
+        "unitComponentTestsPassed": 66,
+        "integrationTestsPassed": 32,
+        "externalE2e": "16/16"
+      },
+      "closure": {
+        "requirementsSource": "TASK.md",
+        "requirementsLineCount": 23,
+        "requirementsByteCount": 1141,
+        "requirementsSha256": "72c0d6914397de7e91cd51a5a94ffd76602c76d984977672d4b295ecc0c01d72",
+        "lifecycle": "finished",
+        "workItem": "work-0001",
+        "workItemLinkedPhase": "finished",
+        "trellisTask": "completed",
+        "taskCompleteReceipt": "receipt-0004",
+        "verificationRecords": 4,
+        "qualityGate": "present-and-passed"
+      },
+      "tokenUsage": {
+        "inputTokens": 14680729,
+        "cachedInputTokens": 14456576,
+        "uncachedInputTokens": 224153,
+        "outputTokens": 40086,
+        "reasoningOutputTokens": 4122,
+        "totalTokens": 14720815,
+        "uncachedInputPlusOutput": 264239,
+        "measurement": "exact-runtime-observed",
+        "attestation": "none"
+      },
+      "rawObservableTrajectory": "docs/evaluations/raw/hellodev-0209-production-p1-treatment-observable-trajectory.json",
+      "publicObservableTrajectory": "docs/evaluations/public/hellodev-0209-production-p1-treatment-observable-trajectory.json"
+    }
+  },
+  "comparison": {
+    "treatmentTimeSavedMs": 172895.59,
+    "treatmentTimeSavedPercent": 10.2835,
+    "treatmentExtraToolWallTimeSeconds": 66.64,
+    "treatmentReducedNonToolModelTimeSeconds": 239.53,
+    "treatmentTotalTokenDelta": 7904305,
+    "treatmentTotalTokenDeltaPercent": 115.9582,
+    "treatmentUncachedInputPlusOutputDelta": 5681,
+    "treatmentUncachedInputPlusOutputDeltaPercent": 2.1972,
+    "observableMechanism": "Treatment spent longer on up-front cross-layer implementation and governance, but required materially less post-gate analysis and rework. This is a plausible mechanism from the trajectories, not causal proof from one pair."
+  },
+  "limitations": [
+    "single sequential pair",
+    "treatment ran second and may have benefited from warm host or OS caches",
+    "Agents are stochastic and followed different trajectories",
+    "treatment included project-local Trellis workflow instructions",
+    "runtime token counters are local and unattested rather than provider-signed billing receipts",
+    "private chain-of-thought is intentionally excluded"
+  ]
+}

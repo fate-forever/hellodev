@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import hashlib
+import json
 import os
 import shutil
 import subprocess
@@ -13,6 +14,7 @@ from typing import Any
 
 from ..approval import consume, prepare
 from .. import components
+from ..component_protocol import canonical_sha256, operation_id
 from ..project import ProjectError
 
 
@@ -29,6 +31,7 @@ READ_PREFIXES = {
 }
 
 _SAFE_IDENTIFIER = re.compile(r"^[A-Za-z0-9._-]{1,96}$")
+_TASK_DIRECTORY = re.compile(r"^(?:00|(?:0[1-9]|1[0-2])-(?:0[1-9]|[12][0-9]|3[01]))-[a-z0-9]+(?:-[a-z0-9]+)*$")
 _SCOPES = {"project", "global"}
 _INTENT_CATALOG = {
     "task-list": {
@@ -41,10 +44,20 @@ _INTENT_CATALOG = {
         "risk": "read",
         "description": "Show the native Trellis current-task pointer and source.",
     },
+    "task-show": {
+        "category": "task",
+        "risk": "read",
+        "description": "Show one structured Trellis task record.",
+    },
     "task-create": {
         "category": "task",
         "risk": "write",
         "description": "Create a native Trellis task directory.",
+    },
+    "task-begin": {
+        "category": "task",
+        "risk": "write",
+        "description": "Create-or-select and start one native Trellis task as a recoverable operation.",
     },
     "task-start": {
         "category": "task",
@@ -52,9 +65,14 @@ _INTENT_CATALOG = {
         "description": "Start a native Trellis task after its own planning gate is satisfied.",
     },
     "task-validate": {
-        "category": "gate",
+        "category": "context",
         "risk": "read",
-        "description": "Run Trellis task validation as a planning/gate check.",
+        "description": "Validate Trellis task context files; this is not quality evidence.",
+    },
+    "task-complete": {
+        "category": "task",
+        "risk": "write",
+        "description": "Mark a started Trellis task complete through the digest-guarded HelloDev bridge.",
     },
     "channel-list": {
         "category": "channel",
@@ -131,6 +149,8 @@ def _launch() -> dict[str, Any] | None:
             "source": "bundled",
             "version": resolved.version,
             "revision": resolved.revision,
+            "component": resolved.component_identity,
+            "protocolVersion": resolved.protocol_version,
             "prefix": resolved.argv,
             "environment": dict(resolved.environment),
             "executionIdentity": [dict(item) for item in resolved.execution_identity],
@@ -143,6 +163,8 @@ def _launch() -> dict[str, Any] | None:
         "source": "external-path",
         "version": None,
         "revision": None,
+        "component": "upstream-trellis",
+        "protocolVersion": None,
         "prefix": [command],
         "environment": {},
         "executionIdentity": [_file_identity(Path(command))],
@@ -162,6 +184,8 @@ def binding_identity() -> dict[str, Any]:
         "source": launch["source"],
         "version": launch["version"],
         "revision": launch["revision"],
+        "component": launch["component"],
+        "protocolVersion": launch["protocolVersion"],
         "manifestSha256": launch["manifestSha256"],
         "environment": launch["environment"],
         "files": launch["executionIdentity"],
@@ -179,6 +203,8 @@ def discover(root: Path) -> dict[str, Any]:
                 "source": "bundled",
                 "version": described["version"],
                 "revision": described["revision"],
+                "component": described["componentIdentity"],
+                "protocolVersion": described["protocolVersion"],
                 "prefix": [described["command"]],
                 "verificationMode": described["verificationMode"],
             }
@@ -199,6 +225,8 @@ def discover(root: Path) -> dict[str, Any]:
             "source": launch["source"],
             "version": launch["version"],
             "revision": launch["revision"],
+            "component": launch["component"],
+            "protocolVersion": launch["protocolVersion"],
             "verificationMode": launch.get("verificationMode", "external-path"),
         }
         if launch is not None
@@ -229,7 +257,9 @@ def discover(root: Path) -> dict[str, Any]:
 
     return {
         "state": "detected",
-        "mode": "confirmed-command",
+        "mode": "component-protocol" if launch is not None and launch.get("protocolVersion") == "hellodev.component/v1" else "confirmed-command",
+        "component": launch.get("component", "upstream-trellis") if launch is not None else "upstream-trellis",
+        "protocolVersion": launch.get("protocolVersion") if launch is not None else None,
         "projectRoot": str(project_root),
         "workflow": (trellis_dir / "workflow.md").is_file(),
         "context": (trellis_dir / "spec" / "context" / "CONTEXT.md").is_file(),
@@ -327,6 +357,7 @@ def _intent_payload(
     name: str,
     *,
     title: str | None = None,
+    acceptance: str | None = None,
     task: str | None = None,
     channel: str | None = None,
     old_thread: str | None = None,
@@ -343,6 +374,78 @@ def _intent_payload(
 
     task_script = project_root / ".trellis" / "scripts" / "task.py"
     if name.startswith("task-"):
+        launch = _launch()
+        enhanced = launch is not None and launch.get("protocolVersion") == "hellodev.component/v1"
+        if enhanced or name in {"task-begin", "task-complete"}:
+            runner_script = Path(__file__).resolve().parents[1] / "trellis_bridge_runner.py"
+            parameters: dict[str, Any] = {}
+            if name in {"task-create", "task-begin"}:
+                selected_task = task if name == "task-begin" else None
+                if selected_task is not None:
+                    selected_task = _intent_value(selected_task, "task")
+                    parameters["task"] = selected_task
+                    record_file = project_root / ".trellis" / "tasks" / selected_task / "task.json"
+                    if record_file.is_symlink() or not record_file.is_file() or record_file.stat().st_size > 64 * 1024:
+                        raise ProjectError("Trellis task record is missing or unsafe")
+                    try:
+                        record = json.loads(record_file.read_text(encoding="utf-8"))
+                    except (OSError, UnicodeError, json.JSONDecodeError) as error:
+                        raise ProjectError(f"Trellis task record is invalid: {error}") from error
+                    if not isinstance(record, dict):
+                        raise ProjectError("Trellis task record is invalid")
+                    parameters["expectedDigest"] = canonical_sha256(record)
+                else:
+                    parameters["title"] = _intent_title(title)
+                    if acceptance is not None:
+                        parameters["acceptance"] = acceptance
+                    tasks_root = project_root / ".trellis" / "tasks"
+                    # The component bridge hashes exactly the bounded task
+                    # directory set.  Files such as README.md/.gitkeep are not
+                    # tasks and must not make prepare/run disagree.
+                    names = sorted(
+                        item.name
+                        for item in tasks_root.iterdir()
+                        if item.is_dir()
+                        and not item.is_symlink()
+                        and _TASK_DIRECTORY.fullmatch(item.name) is not None
+                    ) if tasks_root.is_dir() and not tasks_root.is_symlink() else []
+                    parameters["expectedTaskSetDigest"] = hashlib.sha256(
+                        json.dumps(names, separators=(",", ":")).encode("utf-8")
+                    ).hexdigest()
+            elif name not in {"task-list", "task-current"}:
+                selected_task = _intent_value(task, "task")
+                parameters["task"] = selected_task
+                if name in {"task-start", "task-complete"}:
+                    record_file = project_root / ".trellis" / "tasks" / selected_task / "task.json"
+                    if record_file.is_symlink() or not record_file.is_file() or record_file.stat().st_size > 64 * 1024:
+                        raise ProjectError("Trellis task record is missing or unsafe")
+                    try:
+                        record = json.loads(record_file.read_text(encoding="utf-8"))
+                    except (OSError, UnicodeError, json.JSONDecodeError) as error:
+                        raise ProjectError(f"Trellis task record is invalid: {error}") from error
+                    if not isinstance(record, dict):
+                        raise ProjectError("Trellis task record is invalid")
+                    parameters["expectedDigest"] = canonical_sha256(record)
+            op_id = operation_id("trellis", name, parameters)
+            argv = [
+                str(Path(sys.executable).resolve()), "-X", "utf8", "-B", "-I", str(runner_script),
+                "--root", str(project_root), "--action", name, "--operation-id", op_id,
+                "--parameters", json.dumps(parameters, ensure_ascii=False, separators=(",", ":"), sort_keys=True),
+            ]
+            return {
+                "adapter": "trellis",
+                "intent": name,
+                "component": "hellodev@trellis",
+                "protocolVersion": "hellodev.component/v1",
+                "operationId": op_id,
+                "cwd": str(project_root),
+                "argv": argv,
+                "executionIdentity": [
+                    *([] if launch is None else launch["executionIdentity"]),
+                    _file_identity(runner_script),
+                ],
+                "environment": {} if launch is None else launch["environment"],
+            }, str(details["risk"])
         if not task_script.is_file() or task_script.is_symlink() or not _is_inside(task_script, project_root):
             raise ProjectError("Trellis native task script is missing or unsafe")
         executable_path = str(Path(sys.executable).resolve())
@@ -356,8 +459,12 @@ def _intent_payload(
             argv = [*prefix, "current", "--source"]
         elif name == "task-create":
             argv = [*prefix, "create", _intent_title(title)]
+        elif name == "task-show":
+            argv = [*prefix, "show", _intent_value(task, "task")]
         elif name == "task-start":
             argv = [*prefix, "start", _intent_value(task, "task")]
+        elif name == "task-complete":
+            raise ProjectError("task-complete requires the HelloDev structured bridge")
         else:
             argv = [*prefix, "validate", _intent_value(task, "task")]
     else:
@@ -429,13 +536,23 @@ def _run_payload(payload: dict[str, Any], timeout_seconds: int) -> dict[str, Any
         )
     except subprocess.TimeoutExpired as error:
         raise ProjectError(f"Trellis command timed out after {timeout_seconds} seconds") from error
-    return {
+    result = {
         "adapter": "trellis",
         "argv": payload["argv"],
         "exitCode": completed.returncode,
         "stdout": completed.stdout[:65536],
         "stderr": completed.stderr[:65536],
     }
+    if payload.get("protocolVersion") == "hellodev.component/v1":
+        try:
+            structured = json.loads(completed.stdout)
+        except json.JSONDecodeError as error:
+            raise ProjectError("hellodev@trellis returned invalid JSON") from error
+        if not isinstance(structured, dict) or structured.get("protocolVersion") != "hellodev.component/v1":
+            raise ProjectError("hellodev@trellis returned an incompatible protocol result")
+        result["componentResult"] = structured
+        result["succeeded"] = completed.returncode == 0 and structured.get("ok") is True
+    return result
 
 
 def run_intent(root: Path, name: str, approval: str, timeout_seconds: int, **values: str | None) -> dict[str, Any]:

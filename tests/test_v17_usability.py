@@ -82,16 +82,7 @@ class V17UsabilityTests(unittest.TestCase):
     def test_approved_begin_creates_and_links_one_native_trellis_task(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
-            scripts = root / ".trellis" / "scripts"
-            scripts.mkdir(parents=True)
-            (scripts / "task.py").write_text(
-                "from pathlib import Path\n"
-                "import sys\n"
-                "if sys.argv[1] == 'create':\n"
-                "    (Path('.trellis/tasks') / '07-22-created').mkdir(parents=True)\n"
-                "print('created')\n",
-                encoding="utf-8",
-            )
+            (root / ".trellis" / "tasks").mkdir(parents=True)
             client = ProjectClient(root)
             prepared = client.do("begin", {"goal": "Create through Trellis"})
             self.assertEqual(prepared["state"], "awaiting-confirmation")
@@ -101,9 +92,9 @@ class V17UsabilityTests(unittest.TestCase):
                 {"goal": "Create through Trellis", "approve": prepared["approval"]},
             )
             self.assertEqual(approved["state"], "ready")
-            self.assertEqual(approved["selectedTask"], "07-22-created")
+            self.assertIn("create-through-trellis", approved["selectedTask"])
             self.assertEqual(approved["currentTask"]["backend"], "trellis")
-            self.assertEqual(approved["currentTask"]["nativeRef"], "07-22-created")
+            self.assertEqual(approved["currentTask"]["nativeRef"], approved["selectedTask"])
             self.assertEqual(approved["currentTask"]["lifecyclePhase"], "planned")
 
     def test_core_onboard_is_idempotent_and_never_invents_nocturne(self) -> None:
@@ -127,7 +118,7 @@ class V17UsabilityTests(unittest.TestCase):
             root = Path(directory)
             ProjectClient(root).do("begin", {"goal": "Dashboard task"})
             value = dashboard.snapshot(root, "instance", "started")
-            self.assertEqual(value["schemaVersion"], 16)
+            self.assertEqual(value["schemaVersion"], 23)
             self.assertEqual(value["currentTask"]["title"], "Dashboard task")
             self.assertEqual(value["now"]["currentTask"]["id"], value["currentTask"]["id"])
             self.assertEqual(value["tasks"], {"localCount": 1, "trellisActiveCount": 0, "linkedWorkItemCount": 1})

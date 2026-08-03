@@ -16,6 +16,7 @@ from . import __version__
 from .application import ProjectClient
 from .adapters import nocturne, trellis
 from . import (
+    acceptance,
     approval,
     audit,
     briefs,
@@ -51,6 +52,7 @@ from . import (
     onboarding,
 )
 from .command_rendering import command_line as render_command_line, rewrite_commands
+from .component_protocol import canonical_sha256
 from .project import (
     ProjectError,
     configure_nocturne,
@@ -72,7 +74,7 @@ def _parser(show_all: bool = False) -> argparse.ArgumentParser:
         prog="hellodev",
         description="Standalone HelloDev development workflow CLI.",
         epilog=(
-            "Progressive disclosure: daily = open -> next -> do; "
+            "Progressive disclosure: daily = open -> do begin --goal/--acceptance -> next -> do; "
             "recovery = resume; setup = setup -> onboard -> integrate; advanced = host, policy, drift, optimize, usage, delegate, audit, "
             "MCP transport, and native commands. Use --help-all to disclose every command family."
         ),
@@ -422,16 +424,25 @@ def _parser(show_all: bool = False) -> argparse.ArgumentParser:
     do_parser = commands.add_parser("do", help="run one deterministic HelloDev intent")
     do_commands = do_parser.add_subparsers(dest="do_intent", required=True)
     do_begin = do_commands.add_parser("begin", help="start or select one task and establish the daily work cycle")
-    do_begin.add_argument("--goal", required=True)
-    do_begin.add_argument("--acceptance", default=None)
+    do_begin.add_argument("--goal", default=None, help="required for a new WorkItem; inferred only for an already-bound WorkItem")
+    do_begin.add_argument("--acceptance", default=None, help="required before work/check/finish in the managed daily flow")
+    do_begin.add_argument(
+        "--requirements-file",
+        dest="requirements_file",
+        default=None,
+        help="project-relative UTF-8 source brief; required for strict/wide closure",
+    )
     do_begin.add_argument("--task", default=None, help="explicit existing Trellis task when discovery is ambiguous")
     do_begin.add_argument("--approve", default=None)
     do_begin.add_argument("--timeout", type=int, default=60)
     for intent in ("plan", "work", "check", "finish"):
         lifecycle_intent = do_commands.add_parser(intent, help=f"run the {intent} lifecycle intent")
         lifecycle_intent.add_argument("--note", default=None)
+        if intent == "finish":
+            lifecycle_intent.add_argument("--approve", default=None)
+            lifecycle_intent.add_argument("--timeout", type=int, default=60)
     do_task = do_commands.add_parser("task", help="route a task operation to Trellis or local tasks")
-    do_task.add_argument("operation", choices=("create", "list", "show", "current", "start", "validate"))
+    do_task.add_argument("operation", choices=("create", "list", "show", "current", "start", "validate", "complete"))
     do_task.add_argument("--title", default=None)
     do_task.add_argument("--task", default=None)
     do_task.add_argument("--approve", default=None)
@@ -450,6 +461,26 @@ def _parser(show_all: bool = False) -> argparse.ArgumentParser:
     do_verify.add_argument("--snapshot", default=None, help="repository snapshot returned by the plan")
     do_verify.add_argument("--outcome", choices=("succeeded", "failed"), default=None)
     do_verify.add_argument("--duration-ms", type=int, default=None)
+    do_verify.add_argument(
+        "--current-snapshot",
+        action="store_true",
+        help="explicitly attest that the host command just ran against the current repository snapshot",
+    )
+    do_verify.add_argument(
+        "--result-json",
+        action="append",
+        default=None,
+        help="repeat 1..16 times to record bounded current-snapshot host assertions in one call",
+    )
+    do_verify.add_argument(
+        "--result",
+        dest="result_fields",
+        action="append",
+        nargs=5,
+        metavar=("LEVEL", "SCOPE", "OUTCOME", "DURATION_MS", "COMMAND"),
+        default=None,
+        help='PowerShell-safe batch item; repeat with e.g. --result T2 project succeeded 1200 "npm.cmd test"',
+    )
     do_recall = do_commands.add_parser("recall", help="run the local-first recall intent")
     add_recall_options(do_recall)
     do_remember = do_commands.add_parser("remember", help="run the evidence-gated remember intent")
@@ -462,7 +493,11 @@ def _parser(show_all: bool = False) -> argparse.ArgumentParser:
     trellis_intent = trellis_commands.add_parser("intent", help="prepare or run a validated common Trellis intent")
     trellis_intent.add_argument("name", help="intent name; run 'hellodev trellis intents' to list names")
     trellis_intent.add_argument("--title", default=None, help="task title for task-create")
-    trellis_intent.add_argument("--task", default=None, help="native Trellis task directory name for task-start/task-validate")
+    trellis_intent.add_argument(
+        "--task",
+        default=None,
+        help="native Trellis task directory name for task-start/task-validate/task-complete",
+    )
     trellis_intent.add_argument("--channel", default=None, help="channel name for channel-thread-rename")
     trellis_intent.add_argument("--old-thread", default=None, help="existing thread key for channel-thread-rename")
     trellis_intent.add_argument("--new-thread", default=None, help="replacement thread key for channel-thread-rename")
@@ -1003,19 +1038,31 @@ def _apply_trellis_continuity(
     if native_intent == "task-start":
         execution["workItem"] = contracts.create_work_item(root, "trellis", task)
     elif native_intent == "task-validate":
-        current = contracts.current_work_item(root)
-        if current is not None and current["backend"] == "trellis" and current["nativeRef"] == task:
-            execution["gateReconciliation"] = gates.reconcile(root, execution["receipt"]["id"])
-        else:
-            execution["gateReconciliation"] = {
-                "state": "not-linked",
-                "reason": (
-                    "Validation succeeded without a matching current Trellis WorkItem, so the receipt is not "
-                    "eligible for later gate reconciliation. Select the work item and rerun validation."
-                ),
-                "next": _command_line(root, "work", "link", "--trellis-task", task),
-                "then": _command_line(root, "do", "validate", "--task", task),
-            }
+        task_file = root / ".trellis" / "tasks" / task / "task.json"
+        component_result = execution.get("componentResult")
+        component_data = component_result.get("data") if isinstance(component_result, dict) else None
+        context_valid = component_data.get("valid") is True if isinstance(component_data, dict) else True
+        source = "component-protocol" if isinstance(component_data, dict) else "legacy-task-script"
+        evidence = None
+        if task_file.is_symlink() or (task_file.exists() and (not task_file.is_file() or task_file.stat().st_size > 64 * 1024)):
+            raise ProjectError("Trellis task record is unsafe after context validation")
+        if task_file.is_file():
+            try:
+                task_record = json.loads(task_file.read_text(encoding="utf-8"))
+            except (OSError, UnicodeError, json.JSONDecodeError) as error:
+                raise ProjectError(f"Trellis task record is invalid after context validation: {error}") from error
+            if not isinstance(task_record, dict):
+                raise ProjectError("Trellis task record is invalid after context validation")
+            evidence = acceptance.record_context_validation(
+                root, task, canonical_sha256(task_record), context_valid, source
+            )
+        execution["contextValidation"] = {
+            "state": "passed" if context_valid else "failed",
+            "evidenceClass": "context-validation",
+            "qualityGateSatisfied": False,
+            "reasonCode": "trellis-context-valid-not-quality-evidence",
+            "evidence": evidence,
+        }
     return execution
 
 
@@ -1024,12 +1071,7 @@ def _trellis_evidence_binding(
     native_intent: str,
     task: str | None,
 ) -> dict[str, Any] | None:
-    if native_intent != "task-validate" or not isinstance(task, str):
-        return None
-    current = contracts.current_work_item(root)
-    if current is None or current["backend"] != "trellis" or current["nativeRef"] != task:
-        return None
-    return contracts.evidence_binding(root, current["id"])
+    return None
 
 
 def _gate_policy_payload(root: Path, value: str) -> dict[str, Any]:
@@ -1078,6 +1120,7 @@ def _trellis_intent_values(decision: dict[str, Any]) -> dict[str, Any]:
     arguments = decision["arguments"]
     return {
         "title": arguments.get("title"),
+        "acceptance": arguments.get("acceptance"),
         "task": arguments.get("task"),
         "channel": None,
         "old_thread": None,
@@ -1129,7 +1172,7 @@ def _run_unified_trellis(
         {"intent": native_intent, "argv": result["argv"]},
         result,
         result["exitCode"] == 0,
-        receipt_kind="gate" if native_intent == "task-validate" else "command",
+        receipt_kind="command",
         authorization=authorization,
         evidence_binding=evidence_binding,
     )
@@ -1533,6 +1576,40 @@ def _profile_resume_arguments(args: argparse.Namespace) -> list[str]:
 
 def _project_client_do_arguments(args: argparse.Namespace) -> dict[str, Any]:
     if args.do_intent == "verify":
+        batches_selected = bool(args.result_json) + bool(args.result_fields)
+        if batches_selected > 1:
+            raise ProjectError("--result-json and --result cannot be combined")
+        if batches_selected and any(
+            value is not None
+            for value in (
+                args.level, args.verification_command, args.verification_scope,
+                args.snapshot, args.session, args.outcome, args.duration_ms,
+            )
+        ) or batches_selected and args.current_snapshot:
+            raise ProjectError("batch verification results cannot be combined with single-result arguments")
+        if args.result_json:
+            try:
+                results = [json.loads(value) for value in args.result_json]
+            except json.JSONDecodeError as error:
+                raise ProjectError(f"invalid --result-json: {error}") from error
+            return {"results": results}
+        if args.result_fields:
+            results = []
+            for index, (level, scope, outcome, duration_text, command) in enumerate(args.result_fields):
+                try:
+                    duration = None if duration_text == "-" else int(duration_text)
+                except ValueError as error:
+                    raise ProjectError(f"invalid --result duration at item {index}") from error
+                results.append(
+                    {
+                        "level": level,
+                        "scope": scope,
+                        "outcome": outcome,
+                        "durationMs": duration,
+                        "command": command,
+                    }
+                )
+            return {"results": results}
         return {
             "level": args.level,
             "command": args.verification_command,
@@ -1541,13 +1618,14 @@ def _project_client_do_arguments(args: argparse.Namespace) -> dict[str, Any]:
             "session": args.session,
             "outcome": args.outcome,
             "duration_ms": args.duration_ms,
+            "current_snapshot": args.current_snapshot,
         }
     fields: dict[str, tuple[str, ...]] = {
-        "begin": ("goal", "acceptance", "task", "approve", "timeout"),
+        "begin": ("goal", "acceptance", "requirements_file", "task", "approve", "timeout"),
         "plan": ("note",),
         "work": ("note",),
         "check": ("note",),
-        "finish": ("note",),
+        "finish": ("note", "approve", "timeout"),
         "task": ("operation", "title", "task", "approve", "timeout"),
         "validate": ("task", "approve", "timeout"),
         "recall": ("query", "domain", "limit", "namespace_scope", "also_memory", "approve", "timeout"),

@@ -199,6 +199,7 @@ def discover() -> dict[str, Any]:
             "connectionState": "not-inspected",
             "selectionPolicy": "explicit-symbol-query-only",
             "languageCoverage": ["python"],
+            "impactProviders": ["native-python-ast", "native-typescript-declaration-index"],
             "readOnly": True,
             "required": False,
         },

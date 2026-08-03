@@ -39,7 +39,7 @@ def status(root: str | Path) -> dict[str, Any]:
         "schemaVersion": 1,
         "state": "escape-hatch-observed" if escape_hatches else "unified",
         "dailyNamespace": "hellodev",
-        "dailyFlow": "open -> do begin -> next -> do; resume on interruption",
+        "dailyFlow": "open -> do begin --goal/--acceptance [--requirements-file for multi-item work] -> next -> do; resume on interruption",
         "trellisRole": "authoritative-backend" if authority["authoritativeSystem"] == "trellis" else "not-active",
         "directTrellisPolicy": "advanced-escape-hatch-only",
         "trellisContinueReplacement": "hellodev resume",

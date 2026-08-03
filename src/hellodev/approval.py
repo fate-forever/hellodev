@@ -241,6 +241,22 @@ def consume(root: Path, payload: dict[str, Any], token: str, risk: str) -> None:
     raise ProjectError("approval token is invalid, already consumed, or does not match this exact operation")
 
 
+def status(root: Path) -> dict[str, Any]:
+    """Return token-free approval continuity for the daily projection."""
+    load_config(root)
+    paths = ProjectPaths(Path(root).expanduser().resolve())
+    store = _read_store(paths)
+    pending = [plan for plan in store["plans"] if plan.get("consumedAt") is None]
+    latest = pending[-1] if pending else None
+    return {
+        "state": "pending" if pending else "none",
+        "pendingCount": len(pending),
+        "approvalPlanId": latest.get("id") if latest else None,
+        "risk": latest.get("risk") if latest else None,
+        "tokenExposed": False,
+    }
+
+
 def consume_for_transaction(root: Path, payload: dict[str, Any], token: str, risk: str) -> dict[str, Any]:
     """Durably journal a validated policy token before marking it consumed."""
     if risk != "policy":

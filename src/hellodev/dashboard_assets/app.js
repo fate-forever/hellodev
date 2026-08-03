@@ -102,6 +102,24 @@ const render = (data) => {
   clear("component-health");
   [["Capabilities", now.health.capabilities], ["Trellis", now.health.trellis], ["Nocturne", now.health.nocturne], ["Repository tools", now.health.repositoryTools]].forEach(([name, state]) => $("component-health").append(row(name, "当前只读探测状态", state)));
   $("component-health").append(row("Context Plane", "native bounded repository context", now.health.contextPlane));
+  $("component-health").append(row("Acceptance", `required=${now.acceptance.required}; satisfied=${now.acceptance.satisfied}`, now.acceptance.state));
+  $("component-health").append(row(
+    "Closure integrity",
+    `work=${data.integrity.workItemBound}; acceptance=${data.integrity.acceptanceDeclared}; trellis=${data.integrity.trellisTaskBound}`,
+    data.integrity.closureEligible ? "eligible" : "blocked",
+  ));
+  const acceptanceFlow = data.acceptanceFlow;
+  $("component-health").append(
+    row("Requirements integrity", `bound=${acceptanceFlow.requirementsIntegrity.exactSourcePersisted}; lines=${acceptanceFlow.requirementsIntegrity.lineCount}; bytes=${acceptanceFlow.requirementsIntegrity.byteCount}`, acceptanceFlow.requirementsIntegrity.state),
+    row("Acceptance coverage", `${acceptanceFlow.coverage.satisfied}/${acceptanceFlow.coverage.required} (${Math.round(acceptanceFlow.coverage.ratio * 100)}%)`, acceptanceFlow.state),
+    row("Guided quality", `mode=${acceptanceFlow.quality.mode}; blockers=${acceptanceFlow.quality.blockerCount}`, acceptanceFlow.quality.state),
+    row("Override forwarding", `issues=${acceptanceFlow.guided.overrideForwarding.issueCount}; parse errors=${acceptanceFlow.guided.overrideForwarding.parseErrorCount}`, acceptanceFlow.guided.overrideForwarding.state),
+    row("Evidence diversity", `commands=${acceptanceFlow.guided.verificationQuality.distinctCommandCount}; snapshots=${acceptanceFlow.guided.verificationQuality.distinctSnapshotCount}; repeated=${acceptanceFlow.guided.verificationQuality.repeatedCommandCount}`, acceptanceFlow.guided.verificationQuality.sourceTrust),
+    row("Verification plan", `${acceptanceFlow.verificationPlan.satisfiedSteps}/${acceptanceFlow.verificationPlan.requiredSteps}; current=${acceptanceFlow.verificationPlan.currentStep ?? "none"}`, acceptanceFlow.verificationPlan.state),
+    row("Lifecycle / Trellis", acceptanceFlow.lifecycleDrift.reasonCode, acceptanceFlow.lifecycleDrift.state),
+    row("Pending verification", `host executor; count=${acceptanceFlow.pendingVerification.count}`, acceptanceFlow.hostTest.state),
+    row("Memory", `Nocturne=${acceptanceFlow.memory.nocturne}; automatic external read=false`, acceptanceFlow.memory.state),
+  );
   clear("actions");
   data.actions.forEach((item) => $("actions").append(action(item.label, item.command)));
 
@@ -152,7 +170,7 @@ const render = (data) => {
   const verification = data.verification;
   const trellisExecution = data.trellisExecution;
   clear("efficiency-metrics");
-  $("efficiency-metrics").append(metric("Usage", data.usage.state), metric("Trusted turns", cycle.pendingReceiptCount), metric("Next reflection", cycle.remainingUntilNextCycle), metric("Cycles", cycle.cycleCount), metric("Changed files", data.changeSet.changedFileCount), metric("Code/docs", `${data.changeSet.scopeCounts.code}/${data.changeSet.scopeCounts.docs}`), metric("Trellis profile", trellisExecution.profile || "n/a"), metric("Semantic impact", trellisExecution.semanticImpact?.wideImpact ? "wide" : trellisExecution.semanticImpact?.state || "n/a"), metric("Referencing files", trellisExecution.semanticImpact?.referencingFileCount ?? 0), metric("Adaptive check", trellisExecution.verificationState), metric("Required level", trellisExecution.requiredLevel || "n/a"), metric("Reusable checks", verification.reusableSuccessCount), metric("Pending verify", verification.pendingSessionCount), metric("T0/T1/T2", `${verification.levels.T0}/${verification.levels.T1}/${verification.levels.T2}`), metric("Avoided ms", verification.estimatedAvoidedDurationMs), metric("Evidence trust", verification.sourceTrust));
+  $("efficiency-metrics").append(metric("Usage", data.usage.state), metric("Trusted turns", cycle.pendingReceiptCount), metric("Next reflection", cycle.remainingUntilNextCycle), metric("Cycles", cycle.cycleCount), metric("Acceptance", data.acceptance.state), metric("Acceptance met", data.acceptance.satisfied), metric("Changed files", data.changeSet.changedFileCount), metric("Code/docs", `${data.changeSet.scopeCounts.code}/${data.changeSet.scopeCounts.docs}`), metric("Trellis profile", trellisExecution.profile || "n/a"), metric("Semantic impact", trellisExecution.semanticImpact?.wideImpact ? "wide" : trellisExecution.semanticImpact?.state || "n/a"), metric("Referencing files", trellisExecution.semanticImpact?.referencingFileCount ?? 0), metric("Adaptive check", trellisExecution.verificationState), metric("Required level", trellisExecution.requiredLevel || "n/a"), metric("Reusable checks", verification.reusableSuccessCount), metric("Pending verify", verification.pendingSessionCount), metric("T0/T1/T2", `${verification.levels.T0}/${verification.levels.T1}/${verification.levels.T2}`), metric("Avoided ms", verification.estimatedAvoidedDurationMs), metric("Evidence trust", verification.sourceTrust));
   clear("efficiency-cycle");
   if (cycle.latest) {
     $("efficiency-cycle").append(row("Average tokens", `${cycle.latest.receiptCount} completed turns`, cycle.latest.metrics.averageTokens), action("Recommendation", cycle.latest.recommendation.command, cycle.latest.recommendation.reasonCode));

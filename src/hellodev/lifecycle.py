@@ -100,8 +100,23 @@ def _note(note: str | None) -> str | None:
     return note.strip() if note else None
 
 
-def transition(root: Path, target: str, note: str | None = None) -> dict[str, Any]:
+def transition(
+    root: Path,
+    target: str,
+    note: str | None = None,
+    *,
+    _managed_closure_verified: bool = False,
+) -> dict[str, Any]:
     if target not in PHASES - {"new"}: raise ProjectError(f"unsupported lifecycle target: {target}")
+    if target == "finished" and not _managed_closure_verified:
+        # Import lazily to keep lifecycle state readable in isolation.  Once a
+        # WorkItem exists, finishing is an orchestrated closure transaction:
+        # callers must use ProjectClient.do("finish"), which verifies native
+        # completion, receipt and quality evidence before setting this flag.
+        from . import contracts
+
+        if contracts.current_work_item(root) is not None:
+            raise ProjectError("managed finish must use hellodev do finish; direct lifecycle finish is blocked")
     state = _load(root); current = state["phase"]
     if target not in TRANSITIONS[current]: raise ProjectError(f"cannot transition lifecycle from {current} to {target}")
     event: dict[str, str] = {"from": current, "to": target, "at": utc_now()}; normalized = _note(note)

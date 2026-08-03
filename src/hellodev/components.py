@@ -47,6 +47,8 @@ class ResolvedComponent:
     name: Literal["trellis", "nocturne"]
     version: str
     revision: str
+    component_identity: str
+    protocol_version: str
     source: Literal["bundled"]
     command: str
     args: tuple[str, ...]
@@ -270,7 +272,7 @@ def _validate_lock(name: str, entry: dict[str, Any]) -> None:
     locked = lock["components"].get(name) if isinstance(lock["components"], dict) else None
     if not isinstance(locked, dict):
         raise ComponentError(f"packaged component lock is missing {name}")
-    for field in ("version", "revision", "repository", "licenseSpdx"):
+    for field in ("version", "revision", "repository", "licenseSpdx", "componentIdentity", "protocolVersion"):
         if entry.get(field) != locked.get(field):
             raise ComponentError(f"{name} {field} does not match packaged component lock")
 
@@ -286,11 +288,11 @@ def _entry(root: Path, manifest: dict[str, Any], name: str) -> tuple[dict[str, A
     if not isinstance(value, dict):
         raise ComponentError(f"{name} component entry must be an object")
     expected = {
-        "version", "revision", "repository", "licenseSpdx", "command", "args", "cwd",
+        "version", "revision", "repository", "licenseSpdx", "componentIdentity", "protocolVersion", "command", "args", "cwd",
         "dataPolicy", "environment", "identityFiles", "controlledRoots", "files",
     }
     _strict_keys(value, expected, f"{name} component")
-    for field in ("version", "revision", "repository", "licenseSpdx"):
+    for field in ("version", "revision", "repository", "licenseSpdx", "componentIdentity", "protocolVersion"):
         if not isinstance(value[field], str) or not value[field] or len(value[field]) > 256:
             raise ComponentError(f"{name} {field} must be a bounded string")
     _validate_lock(name, value)
@@ -399,6 +401,8 @@ def _verify_component(name: str, value: str | Path | None = None) -> dict[str, A
         "source": "bundled",
         "version": entry["version"],
         "revision": entry["revision"],
+        "componentIdentity": entry["componentIdentity"],
+        "protocolVersion": entry["protocolVersion"],
         "licenseSpdx": entry["licenseSpdx"],
         "fileCount": len(files),
         "manifestSha256": _manifest_digest(root / MANIFEST_RELATIVE_PATH),
@@ -428,6 +432,8 @@ def _verify_all(value: str | Path | None = None) -> dict[str, Any]:
                 "source": "bundled",
                 "version": entry["version"],
                 "revision": entry["revision"],
+                "componentIdentity": entry["componentIdentity"],
+                "protocolVersion": entry["protocolVersion"],
                 "licenseSpdx": entry["licenseSpdx"],
                 "fileCount": len(files),
                 "manifestSha256": manifest_sha,
@@ -536,7 +542,7 @@ def _describe_component(name: Literal["trellis", "nocturne"], value: str | Path 
     if not isinstance(entry, dict):
         raise ComponentError(f"{name} component entry must be an object")
     expected = {
-        "version", "revision", "repository", "licenseSpdx", "command", "args", "cwd",
+        "version", "revision", "repository", "licenseSpdx", "componentIdentity", "protocolVersion", "command", "args", "cwd",
         "dataPolicy", "environment", "identityFiles", "controlledRoots", "files",
     }
     _strict_keys(entry, expected, f"{name} component")
@@ -599,6 +605,8 @@ def _describe_component(name: Literal["trellis", "nocturne"], value: str | Path 
         "source": "bundled",
         "version": entry["version"],
         "revision": entry["revision"],
+        "componentIdentity": entry["componentIdentity"],
+        "protocolVersion": entry["protocolVersion"],
         "licenseSpdx": entry["licenseSpdx"],
         "command": str(_inside(root, command).resolve()),
         "manifestSha256": _manifest_digest(root / MANIFEST_RELATIVE_PATH),
@@ -674,6 +682,8 @@ def availability(value: str | Path | None = None) -> dict[str, Any]:
                     "source": item["source"],
                     "version": item["version"],
                     "revision": item["revision"],
+                    "componentIdentity": item["componentIdentity"],
+                    "protocolVersion": item["protocolVersion"],
                     "licenseSpdx": item["licenseSpdx"],
                     "manifestSha256": item["manifestSha256"],
                     "verificationMode": item["verificationMode"],
@@ -786,6 +796,8 @@ def _resolve_component(name: Literal["trellis", "nocturne"], value: str | Path |
         name=name,
         version=entry["version"],
         revision=entry["revision"],
+        component_identity=entry["componentIdentity"],
+        protocol_version=entry["protocolVersion"],
         source="bundled",
         command=str(command.resolve()),
         args=tuple(_expand(item, root, home_data) for item in entry["args"]),

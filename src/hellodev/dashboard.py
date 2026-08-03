@@ -5,7 +5,7 @@ from http import HTTPStatus
 from http.cookies import SimpleCookie
 from http.server import BaseHTTPRequestHandler,ThreadingHTTPServer
 from pathlib import Path
-from . import __version__,capabilities,changesets,checkpoints,components,context_runtime,contracts,drift,efficiency_cycles,experience,facade,gates,host_bridge,integrations,lifecycle,optimization,policy_evolution,receipts,repository_tools,resume,sagas,transactions,trellis_execution,verification,workflow_projection
+from . import __version__,acceptance,capabilities,changesets,checkpoints,components,context_runtime,contracts,drift,efficiency_cycles,experience,facade,gates,host_bridge,integrations,lifecycle,optimization,policy_evolution,receipts,repository_tools,resume,sagas,transactions,trellis_execution,verification,workflow_projection
 from .governance import usage_status
 from .command_rendering import rewrite_commands
 from .project import ProjectError,ProjectPaths,list_tasks,load_config,utc_now,write_json
@@ -338,12 +338,14 @@ def _legacy_snapshot(root:Path,instance:str,started:str):
  return rewrite_commands({"schemaVersion":9,"generatedAt":utc_now(),"instanceId":instance,"startedAt":started,"readOnly":True,"lifecycle":{"phase":life["phase"],"cycleId":life["cycleId"],"completedCycleCount":len(life["completedCycles"])},"tasks":{"localCount":len(list_tasks(root)),"trellisActiveCount":len(contracts.list_trellis_tasks(root)),"linkedWorkItemCount":len(contracts.list_work_items(root))},"capabilities":{"state":caps["state"]},"adapters":{"trellis":adapt("trellis"),"nocturne":adapt("nocturne")},"briefs":brief_items,"usage":usage,"efficiencyCycle":_efficiency_cycle_snapshot(root),"continuity":continuity,"optimization":optimize,"advanced":advanced,"audit":{"receipts":len(receipts.list_receipts(root)),"sagas":saga_count,"optimizationTraces":optimize["traceCount"],"reflectionReports":optimize["reportCount"],"evolutionProposals":optimize["proposalCount"],"hostCompletions":advanced["host"]["completionCount"],"pendingTransactions":advanced["transactions"]["pendingCount"],"pendingHostEnvelopes":advanced["host"]["pendingEnvelopeCount"],"policyEvents":advanced["policy"]["eventCount"],"driftFindings":advanced["drift"]["findingCount"],**continuity["auditSummary"]},"actions":[{"label":"刷新能力","command":"hellodev capabilities refresh"},{"label":"构建 L0 brief","command":"hellodev brief build --level L0"},{"label":"进入计划阶段","command":"hellodev lifecycle plan"},{"label":"进入工作阶段","command":"hellodev lifecycle work"}]})
 def snapshot(root:Path,instance:str,started:str):
  value=_legacy_snapshot(root,instance,started)
- value["schemaVersion"]=16
+ value["schemaVersion"]=23
  cached=capabilities.status(root).get("capabilities") or {}
  value["repositoryTools"]=cached.get("repositoryTools") if isinstance(cached.get("repositoryTools"),dict) else repository_tools.discover()
  value["contextPlane"]=context_runtime.status(root)
  try:value["verification"]=verification.summary(root)
- except ProjectError:value["verification"]={"schemaVersion":2,"state":"invalid","recordCount":0,"currentRecordCount":0,"reusableSuccessCount":0,"blockedFailureCount":0,"levels":{"T0":0,"T1":0,"T2":0},"scopes":{"code":0,"docs":0,"project":0},"pendingSessionCount":0,"expiredSessionCount":0,"pendingSession":None,"estimatedAvoidedDurationMs":0,"sourceTrust":"host-asserted","rawCommandPersisted":False,"rawOutputPersisted":False,"trellisGateSatisfied":False}
+ except ProjectError:value["verification"]={"schemaVersion":2,"state":"invalid","recordCount":0,"currentRecordCount":0,"workItemRecordCount":0,"reusableSuccessCount":0,"blockedFailureCount":0,"distinctCommandCount":0,"distinctSnapshotCount":0,"repeatedCommandCount":0,"levels":{"T0":0,"T1":0,"T2":0},"scopes":{"code":0,"docs":0,"project":0},"pendingSessionCount":0,"expiredSessionCount":0,"pendingSession":None,"estimatedAvoidedDurationMs":0,"sourceTrust":"host-asserted","rawCommandPersisted":False,"rawOutputPersisted":False,"trellisGateSatisfied":False}
+ try:value["acceptance"]=acceptance.evidence(root)
+ except ProjectError:value["acceptance"]={"schemaVersion":1,"state":"invalid","required":False,"satisfied":False,"contract":None,"next":None,"sourceTrust":"unavailable","testExecutionPerformed":False,"rawOutputPersisted":False}
  try:value["projectMode"]=workflow_projection.status(root)
  except ProjectError:value["projectMode"]={"schemaVersion":1,"mode":"hybrid-recovery","authoritativeSystem":"unknown","projectionOnly":True,"reasonCode":"projection-invalid"}
  try:value["facade"]=facade.status(root)
@@ -356,14 +358,60 @@ def snapshot(root:Path,instance:str,started:str):
  value["currentTask"]=experience.current_task(root)
  continuity=value["continuity"];next_step=continuity["resume"].get("next") or {"command":"hellodev doctor --fix-hints","reason":"Project state is invalid; inspect deterministic fix hints.","reasonCode":"project-state-invalid","suggestedLevel":"L0"}
  value["briefs"]=value["briefs"][-20:]
+ work_item=continuity["currentWorkItem"]
+ acceptance_declared=bool(value["acceptance"]["required"])
+ work_item_bound=isinstance(work_item,dict) and bool(work_item.get("id"))
+ trellis_task_bound=work_item_bound and work_item.get("backend")=="trellis"
+ next_action=next_step.get("action") if isinstance(next_step,dict) else None
+ compact_action=(
+  {key:next_action[key] for key in ("kind","hostCommand","commandTemplate","requiredInputs","recommendedInputs","requirementsFileRequiredForWideStrictClosure","workItemBound") if key in next_action}
+  if isinstance(next_action,dict) else None
+ )
+ value["integrity"]={
+  "workItemBound":work_item_bound,
+  "acceptanceDeclared":acceptance_declared,
+  "trellisTaskBound":trellis_task_bound,
+  "closureEligible":work_item_bound and acceptance_declared and bool(value["acceptance"]["satisfied"]),
+ }
  value["now"]={
   "phase":value["lifecycle"]["phase"],"cycleId":value["lifecycle"]["cycleId"],"projectMode":value["projectMode"]["mode"],
-  "workItem":continuity["currentWorkItem"],"currentTask":value["currentTask"],
+  "workItem":work_item,"currentTask":value["currentTask"],"acceptance":{"state":value["acceptance"]["state"],"required":value["acceptance"]["required"],"satisfied":value["acceptance"]["satisfied"]},
   "blocker":continuity["recoveryCenter"][0] if continuity["recoveryCenter"] else None,
-  "next":{"command":next_step["command"],"reason":next_step["reason"],"reasonCode":next_step["reasonCode"],"suggestedLevel":next_step["suggestedLevel"]},
+  "next":{"command":next_step["command"],"reason":next_step["reason"],"reasonCode":next_step["reasonCode"],"suggestedLevel":next_step["suggestedLevel"],**({"action":compact_action} if compact_action is not None else {})},
   "health":{"capabilities":value["capabilities"]["state"],"trellis":value["adapters"]["trellis"]["state"],"nocturne":value["adapters"]["nocturne"]["state"],"repositoryTools":value["repositoryTools"].get("state","unknown"),"contextPlane":value["contextPlane"].get("state","unknown")},
  }
  value["recallInspector"]=_recall_snapshot(root)
+ value["acceptanceFlow"]={
+  "state":value["acceptance"]["state"],
+ "requirementsIntegrity":(
+  (lambda item:{
+   "state":item.get("state","unavailable"),
+   "required":bool(item.get("required")),
+   "satisfied":bool(item.get("satisfied")),
+   "exactSourcePersisted":bool(item.get("exactSourcePersisted")),
+   "byteCount":item.get("source",{}).get("byteCount",0) if isinstance(item.get("source"),dict) else 0,
+   "lineCount":item.get("source",{}).get("lineCount",0) if isinstance(item.get("source"),dict) else 0,
+  })(value["acceptance"].get("requirementsIntegrity",{}))
+ ),
+ "coverage":value["acceptance"].get("coverage",{"satisfied":0,"required":0,"ratio":1.0}),
+  "quality":value["acceptance"].get("qualityCoverage",{"mode":"lite","state":"unavailable","satisfied":False,"blockerCount":0}),
+  "guided":value["acceptance"].get("guidedAcceptance",{"state":"unavailable","mode":"lite","satisfied":False,"blockers":[],"overrideForwarding":{"state":"unavailable","issueCount":0,"parseErrorCount":0,"baselineState":"unavailable"},"verificationQuality":{"sourceTrust":"unavailable","distinctCommandCount":0,"distinctSnapshotCount":0,"repeatedCommandCount":0}}),
+  "lifecycleDrift":value["gateProjection"].get("lifecycleConsistency",{"state":"unavailable","reasonCode":"unavailable"}),
+ "hostTest":value["acceptance"].get("hostTest",{"state":"unavailable","satisfied":False}),
+  "verificationPlan":{
+   "state":value["acceptance"].get("hostTest",{}).get("verificationPlan",{}).get("state","unavailable"),
+   "currentStep":value["acceptance"].get("hostTest",{}).get("verificationPlan",{}).get("currentStep"),
+   "satisfiedSteps":value["acceptance"].get("hostTest",{}).get("verificationPlan",{}).get("satisfiedSteps",0),
+   "requiredSteps":value["acceptance"].get("hostTest",{}).get("verificationPlan",{}).get("requiredSteps",0),
+   "allCurrentSnapshotRequired":value["acceptance"].get("hostTest",{}).get("verificationPlan",{}).get("allCurrentSnapshotRequired",True),
+  },
+  "trellisContextGate":value["acceptance"].get("trellisContextGate",{"state":"unavailable","satisfied":False,"qualityGateSatisfied":False}),
+  "finishDecision":value["acceptance"].get("finishDecision",{"allowed":False,"reasonCode":"unavailable"}),
+  "pendingVerification":{"count":value["verification"]["pendingSessionCount"],"session":value["verification"].get("pendingSession")},
+  "memory":{"state":value["recallInspector"]["state"],"nocturne":value["adapters"]["nocturne"]["state"],"externalReadAutomatic":False},
+  "readOnly":True,
+  "executionPerformed":False,
+ }
  value["diagnostics"]=_diagnostics_snapshot(root,value["capabilities"],value["adapters"],value["repositoryTools"])
  return rewrite_commands(value)
 

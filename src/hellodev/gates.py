@@ -83,9 +83,12 @@ def set_policy(root: Path, value: str) -> dict[str, Any]:
 
 def status(root: Path) -> dict[str, Any]:
     """Project current WorkItem and current-fingerprint gate evidence."""
+    from . import acceptance
+
     policy = policy_show(root)["finishPolicy"]
     capability = capabilities.status(root)
     work_item = contracts.current_work_item(root)
+    acceptance_evidence = acceptance.evidence(root, include_finish=False)
     if work_item is None:
         consistency = _lifecycle_consistency(root, "no-current-work", None)
         return {
@@ -96,6 +99,7 @@ def status(root: Path) -> dict[str, Any]:
             "sourceFingerprint": capability["fingerprint"],
             "currentWorkItem": None,
             "validEvidence": [],
+            "acceptanceEvidence": acceptance_evidence,
             "staleEvidenceCount": 0,
             "lifecycleConsistency": consistency,
             "unlinkedDetection": "unavailable",
@@ -129,6 +133,7 @@ def status(root: Path) -> dict[str, Any]:
             }
             for link in valid_links
         ],
+        "acceptanceEvidence": acceptance_evidence,
         "staleEvidenceCount": len(all_links) - len(valid_links),
         "lifecycleConsistency": consistency,
         "unlinkedDetection": "unavailable",
@@ -150,18 +155,70 @@ def reconcile(root: Path, receipt_id: str, work_item_id: str | None = None) -> d
 def finish_decision(root: Path) -> dict[str, Any]:
     projection = status(root)
     selected = projection["finishPolicy"]
-    has_current_evidence = projection["state"] == "aligned" and projection["capabilityState"] == "fresh"
+    acceptance_evidence = projection["acceptanceEvidence"]
+    has_acceptance_evidence = acceptance_evidence["required"] and acceptance_evidence["satisfied"]
+    has_current_evidence = (
+        (projection["state"] == "aligned" or has_acceptance_evidence)
+        and projection["capabilityState"] == "fresh"
+    )
     current = projection["currentWorkItem"]
     evidence = projection["validEvidence"]
+    if current is None:
+        return {
+            "schemaVersion": 1,
+            "allowed": False,
+            "finishPolicy": selected,
+            "reasonCode": "finish-current-work-required",
+            "reason": "Finish requires a current WorkItem bound through do begin.",
+            "workItemId": None,
+            "evidenceLinkId": None,
+            "nextCommand": 'hellodev do begin --goal "<goal>" --acceptance "<acceptance>"',
+            "executionPerformed": False,
+        }
+    if not acceptance_evidence["required"]:
+        return {
+            "schemaVersion": 1,
+            "allowed": False,
+            "finishPolicy": selected,
+            "reasonCode": "finish-acceptance-contract-required",
+            "reason": "Finish requires an AcceptanceContract bound to the current WorkItem.",
+            "workItemId": current["id"],
+            "evidenceLinkId": None,
+            "nextCommand": (
+                command_line(
+                    root, "do", "begin", "--goal", f"Continue {current['nativeRef']}",
+                    "--acceptance", "<acceptance>", "--task", current["nativeRef"],
+                )
+                if current.get("backend") == "trellis"
+                else 'hellodev do begin --goal "<goal>" --acceptance "<acceptance>"'
+            ),
+            "executionPerformed": False,
+        }
+    if not acceptance_evidence["satisfied"]:
+        return {
+            "schemaVersion": 1,
+            "allowed": False,
+            "finishPolicy": selected,
+            "reasonCode": "finish-acceptance-evidence-required",
+            "reason": f"Finish requires satisfied acceptance evidence; current state is {acceptance_evidence['state']}.",
+            "workItemId": current["id"],
+            "evidenceLinkId": None,
+            "nextCommand": acceptance_evidence["next"] or "hellodev status --verbose",
+            "executionPerformed": False,
+        }
     if has_current_evidence:
         return {
             "schemaVersion": 1,
             "allowed": True,
             "finishPolicy": selected,
-            "reasonCode": "current-gate-present",
-            "reason": "Current fingerprint-bound gate or test evidence is linked to the current work item.",
+            "reasonCode": "current-acceptance-present" if has_acceptance_evidence else "current-gate-present",
+            "reason": (
+                "Declared acceptance has current host-asserted verification evidence."
+                if has_acceptance_evidence
+                else "Current fingerprint-bound gate or test evidence is linked to the current work item."
+            ),
             "workItemId": current["id"],
-            "evidenceLinkId": evidence[0]["id"],
+            "evidenceLinkId": evidence[0]["id"] if evidence else None,
             "nextCommand": "hellodev do finish",
             "executionPerformed": False,
         }

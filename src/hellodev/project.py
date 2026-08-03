@@ -85,6 +85,22 @@ class ProjectPaths:
         return self.state_dir / "changeset.json"
 
     @property
+    def acceptance_file(self) -> Path:
+        return self.state_dir / "acceptance.json"
+
+    @property
+    def acceptance_sources_file(self) -> Path:
+        return self.state_dir / "acceptance-sources.json"
+
+    @property
+    def acceptance_evidence_file(self) -> Path:
+        return self.state_dir / "acceptance-evidence.json"
+
+    @property
+    def task_bindings_file(self) -> Path:
+        return self.state_dir / "task-bindings.json"
+
+    @property
     def sagas_dir(self) -> Path:
         return self.state_dir / "sagas"
 
@@ -312,6 +328,8 @@ def nocturne_config(root: str | Path) -> dict[str, Any] | None:
             "source": "bundled",
             "version": component.version,
             "revision": component.revision,
+            "component": component.component_identity,
+            "protocolVersion": component.protocol_version,
             "manifestSha256": component.manifest_sha256,
             "command": component.command,
             "args": list(component.args),
@@ -395,12 +413,22 @@ def _next_task_id(tasks: list[dict[str, Any]]) -> str:
     return f"task-{highest + 1:04d}"
 
 
-def create_task(root: str | Path, title: str) -> dict[str, Any]:
+def create_task(root: str | Path, title: str, acceptance: str | None = None) -> dict[str, Any]:
     normalized_title = title.strip()
     if not normalized_title or "\n" in normalized_title or "\r" in normalized_title:
         raise ProjectError("task title must be a non-empty single line")
     if len(normalized_title) > 160:
         raise ProjectError("task title must be 160 characters or fewer")
+    normalized_acceptance = None
+    if acceptance is not None:
+        normalized_acceptance = acceptance.strip()
+        if (
+            not normalized_acceptance
+            or "\n" in normalized_acceptance
+            or "\r" in normalized_acceptance
+            or len(normalized_acceptance) > 1000
+        ):
+            raise ProjectError("task acceptance must be a non-empty single line of 1000 characters or fewer")
 
     paths = ProjectPaths(resolve_root(root))
     load_config(paths.root)
@@ -413,7 +441,10 @@ def create_task(root: str | Path, title: str) -> dict[str, Any]:
         "createdAt": utc_now(),
     }
     path = paths.tasks_dir / f"{task_id}.md"
-    body = f"---\n{json.dumps(metadata, sort_keys=True)}\n---\n\n# {normalized_title}\n"
+    acceptance_section = (
+        f"\n## Acceptance\n\n{normalized_acceptance}\n" if normalized_acceptance is not None else ""
+    )
+    body = f"---\n{json.dumps(metadata, sort_keys=True)}\n---\n\n# {normalized_title}\n{acceptance_section}"
     _atomic_write(path, body)
     metadata["path"] = str(path)
     return metadata
@@ -427,4 +458,21 @@ def show_task(root: str | Path, task_id: str) -> dict[str, Any]:
     path = paths.tasks_dir / f"{task_id}.md"
     if not path.is_file() or path.is_symlink():
         raise ProjectError(f"task not found: {task_id}")
+    return _task_metadata(path)
+
+
+def complete_task(root: str | Path, task_id: str) -> dict[str, Any]:
+    """Mark one local task complete while preserving its Markdown body."""
+    task = show_task(root, task_id)
+    path = Path(task["path"])
+    content = path.read_text(encoding="utf-8")
+    lines = content.splitlines(keepends=True)
+    metadata = {key: value for key, value in task.items() if key != "path"}
+    if metadata["status"] == "completed":
+        return {**task, "idempotent": True}
+    metadata["status"] = "completed"
+    metadata["completedAt"] = utc_now()
+    newline = "\n"
+    lines[1] = json.dumps(metadata, sort_keys=True) + newline
+    _atomic_write(path, "".join(lines))
     return _task_metadata(path)

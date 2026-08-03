@@ -1,7 +1,87 @@
 # HelloDev Core codebase map
 
-Last refreshed: 2026-07-27
-Scope: HelloDev 0.19.7 semantic context and conservative impact analysis
+Last refreshed: 2026-07-31
+Scope: HelloDev 0.20.9 Acceptance Integrity and Atomic Closure
+
+## 0.20.9 implementation map
+
+- `acceptance.py` owns the schema-v2 AcceptanceContract and bounded exact
+  requirements-source store. It validates project-relative UTF-8 regular files,
+  immutable content identity and wide strict closure coverage.
+- `project.py` defines the additive `.hellodev/acceptance-sources.json` path.
+- `application.py` carries `requirements_file` through begin/approval recovery,
+  exposes source integrity in the closure plan and enforces the managed Trellis
+  completion invariant before lifecycle finish.
+- `lifecycle.py` rejects public low-level `finished` transitions for a bound
+  WorkItem unless called by the verified managed closure path.
+- `cli.py`, `resume.py`, `onboarding.py` and `facade.py` expose the exact-source
+  input without adding a new daily step or MCP tool.
+- `dashboard.py` and `dashboard_assets/app.js` expose only sanitized source
+  integrity counts/state; path, digest and raw requirements are excluded.
+
+## 0.20.8 implementation map
+
+- `adapters/trellis.py` aligns prepared and executed task-set identity by
+  filtering to valid non-symlink task directories.
+- `verification.py` owns bounded npm launcher canonicalization, executable
+  host rendering and atomic current-snapshot result batches.
+- `application.py` exposes the conservative closure plan at begin and refreshes
+  the WorkItem after explicit current-snapshot evidence.
+- `trellis_bridge.py` projects mergeable, hash-only HelloDev quality evidence
+  without taking ownership of Trellis/user gate files.
+- `cli.py` accepts repeated `--result-json` and PowerShell-safe structured
+  `--result` fields; Core still never executes the returned host commands.
+
+## 0.20.7 implementation map
+
+- [Implemented] `resume.py` owns the single structured `begin-work` recovery action. An unbound or acceptance-missing active cycle cannot fall through to the legacy lifecycle `do plan/work/check/finish` mapping.
+- [Implemented] `application.py` enforces WorkItem identity on `plan` and WorkItem plus AcceptanceContract identity on `work`, `verify`, `check`, and `finish`. `do begin` can repair a legacy unbound active cycle without rewinding it.
+- [Implemented] `gates.py` treats WorkItem, AcceptanceContract, and satisfied acceptance as non-negotiable closure identity. `finishPolicy=suggest` applies only to supplemental gate policy.
+- [Implemented] `trellis_bridge.py` and the Trellis adapter expose recoverably idempotent `task-begin`; `application.py` performs bounded unique alignment or returns exact candidate actions, then persists the WorkItem, contract, and binding.
+- [Implemented] `dashboard.py` schema 23 / Control Center 3.3 exposes sanitized binding and closure booleans plus the compact unique next action. It remains read-only and copy-only.
+- [Preserved] Manifest-first ordered host verification, host-asserted trust, six MCP tools, six-field default `open`, one-time authorization, and independent Trellis/Nocturne authority remain unchanged.
+
+## Historical 0.20.6 orientation map
+
+- [High confidence, source read] `trellis_execution.py` owns runtime command discovery and currently checks a generic `tests/` directory before `package.json`; this is the reproduced TypeScript-to-pytest misclassification surface.
+- [High confidence, source read] `acceptance.py` currently models one host command and always constructs its action before inspecting a blocked failure. It is the primary surface for an ordered current-snapshot verification plan and fail-closed action projection.
+- [High confidence, source read] `verification.py` already provides exact command/scope/snapshot identities and atomic host-asserted receipts. 0.20.6 can reuse this store without a new executable authority or raw output persistence.
+- [High confidence, source read] `resume.py` copies `hostTest.action` into the unique next decision. It must only do so when the selected plan step is runnable; top-level command and action must remain coherent.
+- [Preserved boundary] Trellis task/context validation remains authoritative context evidence but is not host-test quality evidence. HelloDev emits one command at a time and never shell-chains or executes it.
+- [Validation boundary] Unit tests must cover TS-only `tests/`, Python compatibility, ordered test/typecheck progress, snapshot invalidation, mixed-repo ambiguity, and unchanged-failure routing. Real retained Trellis validation must start from a clean fixture clone.
+
+## 0.20.5 orientation map
+
+- [High confidence, implemented] `verification.py` supports explicit atomic current-snapshot host attestation. Daily `next.action` returns the host command plus exact success/failure receipt commands; legacy session and copied-snapshot paths remain compatible, and all evidence remains `host-asserted`.
+- [High confidence, implemented] `resume.py` returns a typed host-command/record-success/record-failure action and onboarding rules set `helpOrStatusProbeRequired=false`, so a compliant host does not need preliminary help, status, gate or receipt probes.
+- [High confidence, implemented] `knowledge_flows` defaults technical Nocturne recall to `core`, enriches one bounded query with detected runtime terms, exposes zero accepted results and performs no automatic retry. The project namespace remains audit-only because upstream `search_memory` has no verified namespace argument.
+- [High confidence, implemented] default six-field `open` and ordinary `do` do not scan the in-flight Codex rollout. `open --verbose` and explicit `usage sync` retain exact completed-turn collection; unsupported hosts remain `unavailable`.
+- [Fact, audited runtime evidence] The valid full-capability sample passed runtime, hidden and TypeScript checks but used 136 shell calls; 100 were classified as HelloDev/Trellis coordination. Nocturne executed successfully but returned no accepted item for a seed found by direct pre-run search.
+- [Fact, validation boundary] Focused, fast/full and isolated base-wheel gates cover the 0.20.5 behavior. Repeated sequential Direct Agent A/B measurement remains separate and no performance percentage is claimed from implementation tests.
+
+## 0.20.4 aligned fast-path map
+
+- [High confidence, implemented] `task_alignment.py` reads at most 64 KiB of `task.json`, consumes only bounded identity/title/description/scope/package fields, and requires meaningful goal-token overlap before the sole active Trellis task may be selected automatically. Explicit selection and newly created tasks are recorded in a hash-only `.hellodev/task-bindings.json` attestation.
+- [High confidence, implemented] `application.py` creates a new approved Trellis task when the sole existing task is unrelated. `finish` refuses to complete a legacy Trellis binding that has neither a binding attestation nor current goal alignment.
+- [High confidence, implemented] `verification.coverage()` can reuse same-WorkItem, same-scope-snapshot, equal-or-stronger successful host evidence for at most five-file `standard` work. It never claims command equivalence; `strict` work retains exact T2/project evidence.
+- [High confidence, implemented] `typescript_impact.py` provides bounded exported-declaration/reference counts for changed `.ts`/`.tsx` files. It can only escalate adaptive risk and exposes no symbol or path.
+- [High confidence, implemented] `repository_tools.py` labels the native provider as language-aware and FastCtx as `available-not-active`; discovery never proves activation. Dashboard schema 20 / Control Center 3.0 displays the resulting projections read-only.
+
+## 0.20.3 guided acceptance map
+
+- `guided_acceptance.py` derives `lite`, `guided`, or `strict` from the AcceptanceContract, ChangeSet and bounded semantic impact. It blocks explicit feature work with no code change and projects count-only quality evidence.
+- `python_impact.py` performs dependency-free Python AST analysis for newly introduced override constructor parameters that are accepted but not loaded or forwarded to a base constructor. It returns only counts and SHA-256 fingerprints.
+- `changesets.py` schema 2 captures a hash-only quality baseline at `begin`, so pre-existing findings do not block unrelated work. Schema 1 remains readable and exposes the missing baseline as advisory.
+- `acceptance.py` composes guided quality separately from the 0.20.2 host/Trellis coverage ratio. `resume.py` routes quality failures as `guided-acceptance-blocked`; `check` and `finish` both use the same fail-closed acceptance gate.
+- `verification.py` reports command, snapshot and repeat diversity over the current WorkItem while preserving current-snapshot reuse counts and `host-asserted` trust.
+- `application.py` keeps the exact six-field default `open` contract while exposing mode, quality and blocker reason codes. `dashboard.py` and Control Center 2.9/schema 19 add the same filtered read-only projection.
+
+## 0.20.2 native component map
+
+- `component_protocol.py` defines `hellodev.component/v1`, component identities, canonical hashes and legacy MCP text-error recognition.
+- `trellis_bridge.py` and `trellis_bridge_runner.py` implement the isolated structured `hellodev@trellis` task/gate bridge with operation replay and digest checks.
+- `nocturne_protocol.py` stores project-bound namespace hashes, read receipts, expected versions and mutation replay hashes without memory content.
+- Both adapters select enhanced bundled behavior while retaining compatibility mode for explicit upstream installations.
 
 ## 0.19.7 semantic context implementation map
 

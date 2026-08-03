@@ -7,7 +7,7 @@
   "required": ["schemaVersion", "distributionVersion", "target", "controlledRoots", "distributionFiles", "components"],
   "properties": {
     "schemaVersion": {"const": 1},
-    "distributionVersion": {"const": "0.19.7"},
+    "distributionVersion": {"const": "0.20.9"},
     "target": {
       "type": "object",
       "additionalProperties": false,
@@ -48,12 +48,14 @@
     "component": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["version", "revision", "repository", "licenseSpdx", "command", "args", "cwd", "dataPolicy", "environment", "identityFiles", "controlledRoots", "files"],
+      "required": ["version", "revision", "repository", "licenseSpdx", "componentIdentity", "protocolVersion", "command", "args", "cwd", "dataPolicy", "environment", "identityFiles", "controlledRoots", "files"],
       "properties": {
         "version": {"type": "string", "minLength": 1, "maxLength": 256},
         "revision": {"type": "string", "minLength": 1, "maxLength": 256},
         "repository": {"type": "string", "minLength": 1, "maxLength": 256},
         "licenseSpdx": {"type": "string", "minLength": 1, "maxLength": 64},
+        "componentIdentity": {"enum": ["hellodev@trellis", "hellodev@nocturne"]},
+        "protocolVersion": {"const": "hellodev.component/v1"},
         "command": {"type": "string", "minLength": 1, "maxLength": 512},
         "args": {"type": "array", "maxItems": 32, "items": {"type": "string", "maxLength": 1024}},
         "cwd": {"type": ["string", "null"], "maxLength": 512},

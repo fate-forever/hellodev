@@ -205,12 +205,13 @@ class UsageCollectorTests(unittest.TestCase):
             with mock.patch.dict("os.environ", environment, clear=False), mock.patch(
                 "hellodev.application.Path.cwd", return_value=root
             ):
-                opened = _run_cli("--root", str(root), "open")
+                opened = _run_cli("--root", str(root), "open", "--verbose")
+                status = _run_cli("--root", str(root), "status")
 
             self.assertEqual(opened["usageSync"]["state"], "synced")
             self.assertEqual(opened["usageSync"]["recordedCount"], 3)
             self.assertEqual(opened["usageSync"]["pendingReceiptCount"], 3)
-            self.assertEqual(opened["reflectionCycle"]["pendingReceiptCount"], 3)
+            self.assertEqual(status["reflectionCycle"]["pendingReceiptCount"], 3)
 
     def test_project_discovery_syncs_without_codex_thread_id(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
@@ -244,17 +245,36 @@ class UsageCollectorTests(unittest.TestCase):
             self.assertEqual(value["totalTokens"], 105)
             self.assertFalse(value["estimated"])
 
-    def test_daily_do_incrementally_syncs_discovered_codex_usage(self) -> None:
+    def test_daily_do_defers_usage_sync_without_scanning_rollouts(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             root, codex_home = self._multi_turn_fixture(directory, completed_turns=2)
-            with mock.patch.dict("os.environ", {"CODEX_HOME": str(codex_home)}, clear=True):
+            with mock.patch.dict("os.environ", {"CODEX_HOME": str(codex_home)}, clear=True), mock.patch(
+                "hellodev.application.usage_collector.sync_codex_usage"
+            ) as sync:
                 value = ProjectClient(root).do("task", {"operation": "list"})
 
-            self.assertEqual(value["usageSync"]["selectionMode"], "project-session-discovery")
+            sync.assert_not_called()
+            self.assertEqual(value["usageSync"]["state"], "deferred")
+            self.assertEqual(
+                value["usageSync"]["reasonCode"],
+                "usage-sync-deferred-until-verbose-open-or-explicit-sync",
+            )
             self.assertEqual(value["usageSync"]["measurement"], "exact")
             self.assertFalse(value["usageSync"]["estimated"])
-            self.assertEqual(value["usageSync"]["recordedCount"], 2)
-            self.assertEqual(value["usageSync"]["remainingUntilNextCycle"], 18)
+            self.assertFalse(value["usageSync"]["persistencePerformed"])
+            self.assertEqual(governance.list_runtime_usage_records(root), [])
+
+    def test_default_open_does_not_scan_usage_rollouts(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root, _ = self._multi_turn_fixture(directory, completed_turns=2)
+            with mock.patch("hellodev.application.usage_collector.sync_codex_usage") as sync:
+                opened = ProjectClient(root).open()
+
+            sync.assert_not_called()
+            self.assertEqual(
+                set(opened),
+                {"task", "phase", "blockers", "acceptance", "next", "approval"},
+            )
 
     def test_collects_previous_completed_turn_and_subagent_by_cumulative_delta(self) -> None:
         with tempfile.TemporaryDirectory() as directory:

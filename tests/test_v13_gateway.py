@@ -46,12 +46,13 @@ class V13GatewayTests(unittest.TestCase):
             root = Path(directory)
             client = ProjectClient(root)
             opened = client.open()
-            self.assertEqual(opened["next"]["command"], "hellodev do plan")
+            self.assertEqual(opened["next"]["action"]["kind"], "begin-work")
             self.assertEqual(client.next(), run_cli("--root", str(root), "next"))
             self.assertEqual(client.status(), run_cli("--root", str(root), "status"))
             self.assertEqual(client.resume(), run_cli("--root", str(root), "resume"))
-            planned = client.do("plan")
-            self.assertEqual(planned["lifecycle"]["phase"], "planned")
+            planned = client.do("begin", {"goal": "Gateway contract", "acceptance": "project verification succeeds"})
+            self.assertEqual(planned["state"], "ready")
+            self.assertEqual(client.resume()["lifecyclePhase"], "planned")
 
     def test_project_client_rejects_unknown_or_cross_intent_arguments(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
@@ -130,7 +131,7 @@ class V13GatewayTests(unittest.TestCase):
         pyproject = (PACKAGE_ROOT / "pyproject.toml").read_text(encoding="utf-8")
         ci = (PACKAGE_ROOT / ".github" / "workflows" / "ci.yml").read_text(encoding="utf-8")
         publish = (PACKAGE_ROOT / ".github" / "workflows" / "publish.yml").read_text(encoding="utf-8")
-        self.assertIn('version = "0.19.7"', pyproject)
+        self.assertIn('version = "0.20.9"', pyproject)
         self.assertIn("dependencies = []", pyproject)
         self.assertIn('mcp = ["mcp==1.28.1"]', pyproject)
         self.assertIn('python -m pip install ".[mcp]"', ci)
@@ -145,7 +146,7 @@ class V13GatewayTests(unittest.TestCase):
         self.assertIn('mcp-smoke/bin/python -m pip install "mcp==1.28.1"', publish)
         self.assertIn("mcp-smoke/bin/python scripts/mcp_smoke.py", publish)
         self.assertTrue((PACKAGE_ROOT / "scripts" / "mcp_smoke.py").is_file())
-        self.assertEqual(verify_release_version("v0.19.7")["version"], "0.19.7")
+        self.assertEqual(verify_release_version("v0.20.9")["version"], "0.20.9")
         with self.assertRaisesRegex(ValueError, "release version mismatch"):
             verify_release_version("v0.14.0")
 

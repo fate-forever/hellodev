@@ -238,8 +238,32 @@ def list_trellis_tasks(root: str | Path) -> list[str]:
             item.resolve().relative_to(tasks.resolve())
         except ValueError as error:
             raise ProjectError("Trellis task escapes the project task store") from error
+        record_file = item / "task.json"
+        if record_file.is_file() and not record_file.is_symlink():
+            try:
+                if record_file.stat().st_size <= 64 * 1024:
+                    record = json.loads(record_file.read_text(encoding="utf-8"))
+                    if isinstance(record, dict) and record.get("status") in {"completed", "archived"}:
+                        continue
+            except (OSError, UnicodeError, json.JSONDecodeError):
+                pass
         values.append(item.name)
     return values
+
+
+def trellis_task_state(root: str | Path, native_ref: str) -> str:
+    """Project one bounded native task state, including completed pointers."""
+    resolved, _ = _paths(root)
+    _validate_native_ref(resolved, "trellis", native_ref)
+    record_file = resolved / ".trellis" / "tasks" / native_ref / "task.json"
+    if not record_file.is_file() or record_file.is_symlink() or record_file.stat().st_size > 64 * 1024:
+        return "active"
+    try:
+        value = json.loads(record_file.read_text(encoding="utf-8"))
+    except (OSError, UnicodeError, json.JSONDecodeError):
+        return "active"
+    status = value.get("status") if isinstance(value, dict) else None
+    return status if status in {"planning", "in_progress", "completed", "archived"} else "active"
 
 
 def validate_work_item_reference(root: str | Path, work_item: dict[str, Any] | str) -> dict[str, Any]:

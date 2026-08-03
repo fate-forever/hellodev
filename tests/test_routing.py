@@ -11,6 +11,7 @@ PACKAGE_ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(PACKAGE_ROOT / "src"))
 
 from hellodev import capabilities, lifecycle, optimization, resume, routing
+from hellodev.application import ProjectClient
 from hellodev.project import ProjectError, ProjectPaths, init_project, write_json
 
 
@@ -51,9 +52,10 @@ class RoutingTests(unittest.TestCase):
             capabilities.refresh(root)
             started = lifecycle.start(root)
             self.assertEqual(started["phase"], "started")
-            planned = routing.next_decision(root)
-            self.assertEqual(planned["command"], "hellodev do plan")
-            self.assertNotIn("...", planned["command"])
+            intake = routing.next_decision(root)
+            self.assertIn("hellodev do begin", intake["command"])
+            self.assertEqual(intake["reasonCode"], "work-intake-required")
+            self.assertEqual(intake["action"]["kind"], "begin-work")
 
     def test_incomplete_saga_preempts_lifecycle_recommendation(self) -> None:
         for phase in ("trellis-pending", "partial"):
@@ -142,10 +144,7 @@ class RoutingTests(unittest.TestCase):
     def test_active_workflow_hides_efficiency_until_finished(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
-            init_project(root)
-            capabilities.refresh(root)
-            lifecycle.start(root)
-            lifecycle.transition(root, "planned")
+            ProjectClient(root).do("begin", {"goal": "Active workflow", "acceptance": "tests pass"})
             optimization.reflect(root, "code", "L1", "partial", retry_count=2)
 
             decision = routing.next_decision(root)

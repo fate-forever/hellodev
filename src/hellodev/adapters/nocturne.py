@@ -14,6 +14,8 @@ from typing import Any
 
 from .. import __version__, components
 from ..approval import consume, prepare
+from ..component_protocol import canonical_sha256, content_text, text_error
+from .. import nocturne_protocol
 from ..project import ProjectError, load_config, nocturne_config
 
 
@@ -89,13 +91,20 @@ class _StdioMcp:
         self._send({"jsonrpc": "2.0", "method": method, "params": params})
 
     def close(self) -> None:
-        if self._process.poll() is None:
-            self._process.terminate()
-            try:
-                self._process.wait(timeout=2)
-            except subprocess.TimeoutExpired:
-                self._process.kill()
-                self._process.wait(timeout=2)
+        try:
+            if self._process.poll() is None:
+                self._process.terminate()
+                try:
+                    self._process.wait(timeout=2)
+                except subprocess.TimeoutExpired:
+                    self._process.kill()
+                    self._process.wait(timeout=2)
+        finally:
+            self._reader.join(timeout=1)
+            if self._process.stdin is not None:
+                self._process.stdin.close()
+            if self._process.stdout is not None:
+                self._process.stdout.close()
 
 
 def _configuration(root: Path) -> dict[str, Any]:
@@ -104,7 +113,13 @@ def _configuration(root: Path) -> dict[str, Any]:
         raise ProjectError(
             "Nocturne is not enabled for this project; run 'hellodev onboard' for the verified bundle or use 'hellodev nocturne configure' for an external stdio command"
         )
-    return configuration
+    selected = dict(configuration)
+    if selected.get("protocolVersion") == "hellodev.component/v1":
+        selected["environment"] = {
+            **selected.get("environment", {}),
+            "NAMESPACE": nocturne_protocol.namespace_for(root),
+        }
+    return selected
 
 
 def _risk_for_tool(tool: str) -> str:
@@ -123,8 +138,13 @@ def _validate_tool(tool: str) -> None:
         raise ProjectError("Nocturne tool is not in HelloDev's audited read/write allowlist")
 
 
-def _payload(configuration: dict[str, Any], action: str, parameters: dict[str, Any]) -> dict[str, Any]:
-    return {
+def _payload(
+    configuration: dict[str, Any],
+    action: str,
+    parameters: dict[str, Any],
+    protocol: dict[str, Any] | None = None,
+) -> dict[str, Any]:
+    value = {
         "adapter": "nocturne",
         "mode": "stdio",
         "command": configuration["command"],
@@ -138,6 +158,9 @@ def _payload(configuration: dict[str, Any], action: str, parameters: dict[str, A
         "parameters": parameters,
         "executionIdentity": _execution_identity(configuration),
     }
+    if protocol is not None:
+        value["componentProtocol"] = protocol
+    return value
 
 
 def _file_identity(path: Path) -> dict[str, Any]:
@@ -198,6 +221,9 @@ def status(root: Path) -> dict[str, Any]:
             "state": "configured",
             "mode": "stdio",
             "source": "bundled",
+            "component": "hellodev@nocturne",
+            "protocolMode": "enhanced",
+            "protocolVersion": "hellodev.component/v1",
             "version": described["version"],
             "revision": described["revision"],
             "manifestSha256": described["manifestSha256"],
@@ -215,6 +241,8 @@ def status(root: Path) -> dict[str, Any]:
         "state": "configured",
         "mode": "stdio",
         "source": configuration.get("source", "external"),
+        "component": "upstream-nocturne",
+        "protocolMode": "compatibility",
         "version": configuration.get("version"),
         "revision": configuration.get("revision"),
         "manifestSha256": configuration.get("manifestSha256"),
@@ -237,7 +265,12 @@ def prepare_call(root: Path, tool: str, parameters: dict[str, Any]) -> dict[str,
     if not isinstance(parameters, dict):
         raise ProjectError("Nocturne tool parameters must be a JSON object")
     configuration = _configuration(root)
-    payload = _payload(configuration, "tools/call", {"name": tool, "arguments": parameters})
+    protocol = (
+        nocturne_protocol.mutation_metadata(root, tool, parameters)
+        if configuration.get("protocolVersion") and tool in WRITE_TOOLS
+        else None
+    )
+    payload = _payload(configuration, "tools/call", {"name": tool, "arguments": parameters}, protocol)
     return {
         **prepare(root, payload, _risk_for_tool(tool)),
         "adapter": "nocturne",
@@ -245,6 +278,7 @@ def prepare_call(root: Path, tool: str, parameters: dict[str, Any]) -> dict[str,
         "parameterSha256": hashlib.sha256(
             json.dumps(parameters, ensure_ascii=False, separators=(",", ":"), sort_keys=True).encode("utf-8")
         ).hexdigest(),
+        **({"componentProtocol": protocol} if protocol is not None else {}),
     }
 
 
@@ -280,9 +314,46 @@ def call(root: Path, tool: str, parameters: dict[str, Any], approval: str, timeo
         raise ProjectError("Nocturne tool parameters must be a JSON object")
     configuration = _configuration(root)
     arguments = {"name": tool, "arguments": parameters}
-    payload = _payload(configuration, "tools/call", arguments)
+    enhanced = configuration.get("protocolVersion") == "hellodev.component/v1"
+    protocol = nocturne_protocol.mutation_metadata(root, tool, parameters) if enhanced and tool in WRITE_TOOLS else None
+    payload = _payload(configuration, "tools/call", arguments, protocol)
     consume(root, payload, approval, _risk_for_tool(tool))
-    return {"adapter": "nocturne", "tool": tool, "result": _invoke(configuration, "tools/call", arguments, timeout_seconds)}
+    request_sha256 = canonical_sha256({"tool": tool, "parameters": parameters})
+    if protocol is not None:
+        replayed = nocturne_protocol.replay(root, protocol["operationId"], request_sha256)
+        if replayed is not None:
+            return {"adapter": "nocturne", "tool": tool, "component": "hellodev@nocturne", "result": replayed}
+        if "expectedVersion" in protocol:
+            uri = parameters.get("uri")
+            preflight = _invoke(
+                configuration,
+                "tools/call",
+                {"name": "read_memory", "arguments": {"uri": uri}},
+                timeout_seconds,
+            )
+            if text_error(preflight) is not None or preflight.get("isError") is True:
+                raise McpProtocolError("hellodev@nocturne could not verify the current memory version")
+            current_version = canonical_sha256({"content": content_text(preflight)})
+            if current_version != protocol["expectedVersion"]:
+                raise McpProtocolError("hellodev@nocturne expectedVersion conflict; read the memory again")
+    result = _invoke(configuration, "tools/call", arguments, timeout_seconds)
+    if enhanced and tool == "read_memory" and text_error(result) is None and result.get("isError") is not True:
+        receipt = nocturne_protocol.record_read(root, str(parameters.get("uri", "")), content_text(result))
+        result = {**result, "structuredContent": {
+            "protocolVersion": "hellodev.component/v1",
+            "component": "hellodev@nocturne",
+            **receipt,
+        }}
+    if protocol is not None and call_succeeded({"result": result}):
+        nocturne_protocol.record_operation(root, protocol, request_sha256, result)
+        result = {**result, "structuredContent": {
+            "protocolVersion": "hellodev.component/v1",
+            "component": "hellodev@nocturne",
+            "operationId": protocol["operationId"],
+            "replayed": False,
+            "resultSha256": canonical_sha256(result),
+        }}
+    return {"adapter": "nocturne", "tool": tool, "component": "hellodev@nocturne" if enhanced else "upstream-nocturne", "result": result}
 
 
 def call_succeeded(result: dict[str, Any]) -> bool:
@@ -292,4 +363,4 @@ def call_succeeded(result: dict[str, Any]) -> bool:
     is_error = payload.get("isError", False)
     if not isinstance(is_error, bool):
         raise McpProtocolError("Nocturne tools/call isError must be a boolean when present")
-    return not is_error
+    return not is_error and text_error(payload) is None

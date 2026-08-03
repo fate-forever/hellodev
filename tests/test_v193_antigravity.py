@@ -73,7 +73,7 @@ class V193AntigravityTests(unittest.TestCase):
                 patch("hellodev.application.usage_collector.sync_codex_usage") as application_sync,
             ):
                 onboarding.onboard(root, host="antigravity")
-                opened = ProjectClient(root).open()
+                opened = ProjectClient(root).open(verbose=True)
             application_sync.assert_not_called()
             self.assertEqual(opened["usageSync"]["state"], "unavailable")
             self.assertEqual(opened["usageSync"]["host"], "antigravity")
@@ -85,7 +85,7 @@ class V193AntigravityTests(unittest.TestCase):
                 patch("hellodev.cli.usage_collector.sync_codex_usage") as cli_sync,
                 redirect_stdout(output),
             ):
-                code = main(["--root", str(root), "--json", "open"])
+                code = main(["--root", str(root), "--json", "open", "--verbose"])
             self.assertEqual(code, 0)
             cli_sync.assert_not_called()
             self.assertEqual(json.loads(output.getvalue())["usageSync"]["host"], "antigravity")

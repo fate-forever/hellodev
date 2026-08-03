@@ -1,7 +1,90 @@
 # HelloDev Core open questions
 
-Last refreshed: 2026-07-27
-Scope: HelloDev 0.19.7 semantic context and conservative impact analysis
+Last refreshed: 2026-07-31
+Scope: HelloDev 0.20.9 Acceptance Integrity and Atomic Closure
+
+## 0.20.9 decisions and open boundaries
+
+- [Resolved] A host can bind the exact multi-line requirements source through a
+  project-relative UTF-8 file; HelloDev retains its bounded exact content and
+  digest and fails closed if the source is replaced, changed or removed.
+- [Resolved] A strict change spanning more than ten files cannot close from a
+  summary-only acceptance contract, while small and legacy tasks remain compatible.
+- [Resolved] WorkItem-backed lifecycle completion is reachable only through the
+  managed closure path, which verifies Trellis task-complete receipt, native task
+  state, mergeable quality evidence and final WorkItem phase.
+- [Open, host boundary] Core cannot read a Codex/Cursor/Antigravity chat transcript.
+  The host or Agent must explicitly materialize the original brief. This avoids
+  implicit private-transcript collection but still depends on faithful host input.
+- [Open, privacy] Exact requirement text is intentionally persisted locally in
+  `.hellodev/acceptance-sources.json`; projects with sensitive briefs must apply
+  their repository/state retention policy to that file.
+- [Open, calibration] The `>10` changed-file threshold is a conservative first
+  policy derived from one production run and needs cross-project calibration.
+- [Open, atomicity] Closure is recoverably ordered and fail closed. It is not a
+  cross-file or cross-process ACID transaction, and interrupted writes may require
+  the existing recovery path.
+
+## 0.20.8 decisions and open boundaries
+
+- [Resolved] Trellis task-set identity ignores ordinary files and symlinks.
+- [Resolved] Supported Windows npm launcher aliases share one bounded evidence identity; general shell equivalence is not inferred.
+- [Resolved] Begin discloses a conservative closure plan and completed checks can be recorded as one atomic bounded batch.
+- [Resolved] A conservative project-scoped result can satisfy a later narrower same-command requirement only under identical WorkItem and complete repository snapshot identity; exact failure remains blocking.
+- [Resolved] Explicit current-snapshot verification refreshes the WorkItem projection, and HelloDev completion evidence no longer competes for a user-owned singleton gate.
+- [Open, compatibility] Evidence recorded before 0.20.8 with a raw `npm.cmd` hash is not silently reinterpreted; record a new current-snapshot receipt after upgrade.
+- [Open, trust] Verification remains host-asserted. Provider-signed usage and test receipts are future host contracts; token values remain unavailable when the host supplies no trusted receipt.
+- [Open, measurement] The repairs target observed overhead, but no wall-clock, quality or token improvement is claimed until the same production-style task is rerun sequentially with isolated agents.
+
+## 0.20.7 decisions and open boundaries
+
+- [Resolved] Runtime `open/next` action is authoritative. Onboarding prose is a fallback, not a second path planner.
+- [Resolved] Missing WorkItem or AcceptanceContract cannot be hidden by `finishPolicy=suggest`, and daily verification cannot create a new `workItemId=null` record.
+- [Resolved] Trellis begin is recoverably atomic through an operation id and component ledger. It is not described as cross-process ACID.
+- [Resolved] Multiple candidate tasks require one unique meaningful alignment or explicit bounded selection; HelloDev does not guess from arbitrary `TASK.md` prose.
+- [Open, measured separately] 0.20.7 correctness tests do not establish a wall-clock or token improvement over Direct Agent. A new sequential, isolated paired-Agent A/B is required.
+- [Open, preserved] Host verification is asserted rather than provider-signed, and free-form acceptance remains a bounded hint rather than a general shell parser.
+
+## Historical 0.20.6 decisions and open boundaries
+
+- [Resolved design] A directory named `tests` is not runtime proof. Package manifest scripts take precedence; Python needs explicit project/config evidence or bounded `.py` tests.
+- [Resolved design] Acceptance text may name several recognizable host checks. HelloDev projects them as an ordered plan and never combines them into a shell command.
+- [Resolved design] A successful receipt satisfies only its exact command/scope/current snapshot. A source mutation makes prior plan coverage stale through the existing snapshot identity.
+- [Resolved design] A blocked unchanged failure is diagnostic state. It exposes no executable host action, so the host cannot mechanically replay a known failure.
+- [Open, fail closed] Free-form acceptance is not a general shell parser. 0.20.6 recognizes only commands already supported by bounded project manifests; unrecognized or ambiguous declarations require an explicit host command.
+- [Preserved] Host receipts are asserted, not provider-signed; Trellis context validation is not a test result; HelloDev does not run commands, persist output, or estimate tokens.
+
+## 0.20.5 decisions and open boundaries
+
+- [Resolved in 0.20.5] The session round trip is not required for trust: both paths remain `host-asserted`. An explicit current-snapshot attestation flag now avoids silently interpreting a bare outcome.
+- [Resolved in 0.20.5] A package name is not a valid general Nocturne domain. Technical project recall now defaults to `core`; explicit valid domains remain caller-controlled.
+- [Resolved in 0.20.5] In-flight Codex rollout parsing on every daily command produced no current-turn receipt and added avoidable work. Default `open` and ordinary `do` now defer sync; verbose open and explicit sync remain available.
+- [Relevant, non-blocking] Upstream `search_memory` has no verified project-namespace argument in the current public contract. HelloDev must label namespace as audit-only and must not claim server-side namespace filtering. Project-isolated Nocturne data roots remain the only verified physical isolation in this integration.
+- [Relevant, non-blocking] Runtime-term enrichment is bounded lexical assistance, not semantic retrieval or guaranteed recall. A zero result must remain visible and must not trigger an automatic second paid read.
+- [Background] A composite write authorization for Trellis validation plus task completion could remove another round trip, but changing approval/WAL transaction semantics is intentionally deferred until the lower-risk verification and recall changes are measured.
+
+## 0.20.4 decisions and open boundaries
+
+- [High confidence, fixed] A single Trellis task is no longer sufficient for automatic selection. Bounded meaningful-token alignment is required, and new bindings record whether selection was explicit, aligned, or created.
+- [High confidence, fixed] Standard changes of at most five files may reuse same-snapshot host evidence at an equal or stronger declared level. This is level/scope coverage, not semantic command equivalence, provider attestation, or proof that the host selected the best tests.
+- [High confidence, fixed] Strict work, high-priority/security scope, wider changes, deletions, and wide semantic impact retain exact stronger verification. A changed scope snapshot invalidates coverage.
+- [High confidence, bounded] TypeScript analysis recognizes exported declaration names and counts cross-file lexical references. It is not TypeScript parsing, type checking, module resolution, an LSP, affected-test selection, or refactoring safety.
+- [High confidence, unchanged] FastCtx/Serena discovery proves only an executable exists. Unless a host supplies connection evidence, FastCtx remains `available-not-active` and Serena remains `available-not-connected`.
+- [Unmeasured] The 0.20.4 policy removes the specific duplicate standard verification path observed in the pilot, but overall wall-clock improvement requires a repeated controlled A/B run. No percentage is claimed from unit tests.
+
+## 0.20.3 decisions and open boundaries
+
+- The mandatory quality path uses bounded local analysis, but HelloDev still does not execute host tests. Verification remains `host-asserted`; a provider-signed receipt contract is still future work.
+- The blocking Python rule intentionally covers only a high-confidence constructor pattern: a changed subclass accepts a parameter also accepted by a resolvable base constructor, calls `super().__init__`, but never loads that parameter. It is not complete type inference or data-flow analysis.
+- Schema-2 quality baselines distinguish new findings from pre-existing ones. A legacy schema-1 baseline lacks this evidence and therefore reports the forwarding check as advisory rather than inventing history.
+- Non-Python semantic quality gates, command semantic normalization, flaky-test policy, automatic affected-test selection and independent real-project A/B results remain open evaluation areas.
+- No raw path, symbol, source or test output is persisted or projected. Issue fingerprints are local change-comparison identities, not portable vulnerability identifiers.
+
+## 0.20.2 remaining validation
+
+- A newly built Windows bundle still needs clean-machine validation before publication.
+- Future Trellis task-schema revisions require an explicit bridge compatibility review.
+- Nocturne currently hashes its MCP read representation; a native immutable upstream version would be preferable when available.
 
 Release status, artifact hashes, and immutable evidence belong in the root development ledger and the versioned release report. The checks below are the reusable gate for any source change; this orientation file does not duplicate mutable artifact hashes.
 

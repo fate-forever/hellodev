@@ -59,9 +59,9 @@ class V194EndToEndEfficiencyTests(unittest.TestCase):
             (root / "src.py").write_text("VALUE = 1\n", encoding="utf-8")
             with mock.patch.object(native, "_candidates", wraps=native._candidates) as candidates:
                 value = ProjectClient(root).open()
-            self.assertEqual(value["state"], "opened")
+            self.assertEqual(value["phase"], "started")
             candidates.assert_not_called()
-            self.assertEqual(value["changeSet"]["changedFileCount"], 0)
+            self.assertEqual(ProjectClient(root).status(verbose=True)["changeSet"]["changedFileCount"], 0)
 
     def test_open_reuses_one_snapshot_when_baseline_exists(self) -> None:
         with tempfile.TemporaryDirectory() as directory:

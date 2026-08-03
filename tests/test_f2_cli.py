@@ -49,6 +49,9 @@ class F2CliTests(unittest.TestCase):
             "import sys\nprint('native-task:' + ' '.join(sys.argv[1:]))\n",
             encoding="utf-8",
         )
+        verify_script = root / "scripts" / "verify.py"
+        verify_script.parent.mkdir()
+        verify_script.write_text("raise SystemExit(0)\n", encoding="utf-8")
         return root
 
     def _subprocess_json(self, root: Path, *arguments: str) -> dict:
@@ -120,8 +123,11 @@ class F2CliTests(unittest.TestCase):
             root = self._trellis_root(directory)
             run_cli("--root", str(root), "open")
             run_cli("--root", str(root), "work", "link", "--trellis-task", "07-16-f2")
-            for intent in ("plan", "work", "check"):
-                run_cli("--root", str(root), "do", intent)
+            run_cli(
+                "--root", str(root), "do", "begin", "--acceptance", "project verification succeeds",
+                "--task", "07-16-f2",
+            )
+            run_cli("--root", str(root), "do", "work")
             prepared = run_cli(
                 "--root", str(root), "gate", "policy", "set", "require-current-gate"
             )
@@ -144,6 +150,13 @@ class F2CliTests(unittest.TestCase):
                 self.assertEqual(code, 2)
                 self.assertIn("finish blocked", error)
 
+            run_cli(
+                "--root", str(root), "do", "verify", "--level", "T2", "--scope", "project",
+                "--command", "python scripts/verify.py --scope full", "--outcome", "succeeded",
+                "--current-snapshot",
+            )
+            run_cli("--root", str(root), "do", "check")
+
             evidence = receipts.record(
                 root,
                 "trellis",
@@ -158,10 +171,11 @@ class F2CliTests(unittest.TestCase):
             linked = run_cli("--root", str(root), "gate", "reconcile", evidence["id"])
             self.assertEqual(linked["state"], "reconciled")
             self.assertEqual(run_cli("--root", str(root), "gate", "status")["state"], "aligned")
-            finished = run_cli("--root", str(root), "do", "finish")
-            self.assertEqual(finished["lifecycle"]["phase"], "finished")
+            code, _, error = invoke("--root", str(root), "do", "finish")
+            self.assertEqual(code, 2)
+            self.assertIn("Trellis task is missing", error)
 
-    def test_validate_reconciles_only_matching_current_trellis_work(self) -> None:
+    def test_validate_is_context_evidence_not_quality_gate(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             root = self._trellis_root(directory)
             run_cli("--root", str(root), "open")
@@ -177,9 +191,12 @@ class F2CliTests(unittest.TestCase):
                 "--approve",
                 prepared["approval"],
             )
-            reconciliation = completed["result"]["gateReconciliation"]
-            self.assertEqual(reconciliation["evidenceLink"]["workItemId"], work["id"])
-            self.assertEqual(run_cli("--root", str(root), "gate", "status")["state"], "aligned")
+            context_validation = completed["result"]["contextValidation"]
+            self.assertEqual(context_validation["evidenceClass"], "context-validation")
+            self.assertFalse(context_validation["qualityGateSatisfied"])
+            self.assertEqual(completed["result"]["receipt"]["kind"], "command")
+            self.assertEqual(run_cli("--root", str(root), "gate", "status")["state"], "evidence-missing")
+            self.assertEqual(work["id"], "work-0001")
 
     def test_stale_fingerprint_invalidates_gate_and_resume_prioritizes_refresh(self) -> None:
         with tempfile.TemporaryDirectory() as directory:

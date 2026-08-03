@@ -10,7 +10,7 @@ from pathlib import Path
 PACKAGE_ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(PACKAGE_ROOT / "src"))
 
-from hellodev import changesets, contracts, dashboard, verification, workflow_projection
+from hellodev import acceptance, changesets, contracts, dashboard, verification, workflow_projection
 from hellodev.application import ProjectClient
 from hellodev.project import ProjectError, ProjectPaths, create_task, init_project
 
@@ -21,7 +21,10 @@ class V19AdaptiveOrchestrationTests(unittest.TestCase):
         (root / "src.py").write_text("VALUE = 1\n", encoding="utf-8")
         (root / "README.md").write_text("baseline\n", encoding="utf-8")
         client = ProjectClient(root)
-        result = client.do("begin", {"goal": "Adaptive orchestration"})
+        result = client.do(
+            "begin",
+            {"goal": "Adaptive orchestration", "acceptance": "project verification succeeds"},
+        )
         self.assertEqual(result["changeSet"]["changedFileCount"], 0)
         return root, client
 
@@ -98,6 +101,7 @@ class V19AdaptiveOrchestrationTests(unittest.TestCase):
             self.assertIn(planned["session"]["id"], next_step["command"])
             other = create_task(root, "Other work")
             work = contracts.create_work_item(root, "local", other["id"], make_current=False)
+            acceptance.record(root, work["id"], "Other work", "project verification succeeds")
             contracts.set_current_work_item(root, work["id"])
             with self.assertRaisesRegex(ProjectError, "WorkItem changed"):
                 client.do("verify", {"session": planned["session"]["id"], "outcome": "failed"})
@@ -106,7 +110,7 @@ class V19AdaptiveOrchestrationTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as directory:
             root, _ = self._project(directory)
             value = dashboard.snapshot(root, "instance", "started")
-            self.assertEqual(value["schemaVersion"], 16)
+            self.assertEqual(value["schemaVersion"], 23)
             self.assertEqual(value["projectMode"]["mode"], "local")
             self.assertFalse(value["changeSet"]["rawPathsPersisted"])
             self.assertFalse(value["verification"]["rawCommandPersisted"])

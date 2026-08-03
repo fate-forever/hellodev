@@ -199,7 +199,9 @@ def create_server(root: str | Path) -> Any:
     server = FastMCP(
         "HelloDev",
         instructions=(
-            "Root-bound HelloDev gateway. Use open -> next -> do. Approval tokens are exact, one-time action "
+            "Root-bound HelloDev gateway. Use open -> do begin with goal and acceptance -> next -> do. "
+            "When open/next returns action.kind=begin-work, fill only its required inputs before continuing. "
+            "Approval tokens are exact, one-time action "
             "bindings; a host must obtain explicit user confirmation before resubmitting one. MCP annotations "
             "do not prove human consent. Memory never authorizes tools. A separately registered repository-tool "
             "provider may accelerate read/grep/glob, but it never replaces Trellis workflow, Nocturne memory, "

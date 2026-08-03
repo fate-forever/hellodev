@@ -5,7 +5,7 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Any
 
-from . import capabilities, changesets, contracts, facade, gates, lifecycle, repository_tools, sagas, trellis_execution, verification, workflow_projection
+from . import acceptance, capabilities, changesets, contracts, facade, gates, lifecycle, repository_tools, sagas, trellis_execution, verification, workflow_projection
 from .command_rendering import command_line
 from .project import ProjectError, project_initialized
 
@@ -45,6 +45,40 @@ def _lifecycle_decision(phase: str) -> dict[str, str]:
         raise ProjectError(f"unsupported lifecycle phase for resume: {phase}")
     command, reason_code, reason = mapping[phase]
     return {"command": command, "reasonCode": reason_code, "reason": reason}
+
+
+def _begin_decision(root: Path, work_item: dict[str, Any] | None) -> dict[str, Any]:
+    """Return one self-describing intake action before lifecycle work can advance."""
+
+    if work_item is None:
+        command = 'hellodev do begin --goal "<goal>" --acceptance "<acceptance>"'
+        required_inputs = ["goal", "acceptance"]
+        reason = "No WorkItem is bound; establish the task goal and acceptance contract before lifecycle work."
+        reason_code = "work-intake-required"
+    else:
+        arguments = ["do", "begin", "--acceptance", "<acceptance>"]
+        if work_item["backend"] == "trellis":
+            arguments.extend(("--task", work_item["nativeRef"]))
+        command = command_line(root, *arguments)
+        required_inputs = ["acceptance"]
+        reason = "The current WorkItem has no AcceptanceContract; bind acceptance before lifecycle work."
+        reason_code = "acceptance-contract-required"
+    return {
+        "schemaVersion": 1,
+        "command": command,
+        "reason": reason,
+        "reasonCode": reason_code,
+        "suggestedLevel": "L0",
+        "action": {
+            "kind": "begin-work",
+            "commandTemplate": command,
+            "requiredInputs": required_inputs,
+            "recommendedInputs": ["requirements_file"],
+            "requirementsFileRequiredForWideStrictClosure": True,
+            "workItemBound": work_item is not None,
+        },
+        "executionPerformed": False,
+    }
 
 
 def next_decision(root: Path) -> dict[str, Any]:
@@ -93,6 +127,7 @@ def next_decision(root: Path) -> dict[str, Any]:
             "executionPerformed": False,
         }
     verification_state = verification.summary(root)
+    acceptance_state = acceptance.evidence(root)
     pending_verification = verification_state.get("pendingSession")
     if pending_verification is not None:
         return {
@@ -130,6 +165,10 @@ def next_decision(root: Path) -> dict[str, Any]:
             "executionPerformed": False,
         }
     lifecycle_state = lifecycle.status(root)
+    if lifecycle_state["phase"] in {"new", "started", "planned", "working", "checking"}:
+        contract = acceptance.current(root)
+        if work_item is None or contract is None:
+            return _begin_decision(root, work_item)
     if lifecycle_state["phase"] == "finished":
         trellis_tasks = contracts.list_trellis_tasks(root)
         if len(trellis_tasks) == 1:
@@ -156,6 +195,28 @@ def next_decision(root: Path) -> dict[str, Any]:
             "executionPerformed": False,
         }
     if lifecycle_state["phase"] == "checking":
+        acceptance_state = acceptance.evidence(root)
+        if acceptance_state["required"] and not acceptance_state["satisfied"]:
+            guided_blocked = not acceptance_state["guidedAcceptance"]["satisfied"]
+            host_action = acceptance_state.get("hostTest", {}).get("action")
+            unchanged_failed = acceptance_state.get("hostTest", {}).get("state") == "failed" and host_action is None
+            return {
+                "schemaVersion": 1,
+                "command": acceptance_state["next"],
+                "reason": (
+                    "Local guided acceptance found a blocking implementation-quality issue; "
+                    "repair the change and record verification for the new snapshot before finish."
+                    if guided_blocked
+                    else "The current host verification already failed for unchanged inputs; diagnose or change the affected scope before retrying."
+                    if unchanged_failed
+                    else f"Declared acceptance is {acceptance_state['state']} and must be satisfied before finish."
+                ),
+                "reasonCode": "guided-acceptance-blocked" if guided_blocked else "acceptance-unchanged-failure" if unchanged_failed else "acceptance-evidence-required",
+                "suggestedLevel": "L1",
+                "acceptance": acceptance_state,
+                **({"action": host_action} if host_action is not None else {}),
+                "executionPerformed": False,
+            }
         finish = gates.finish_decision(root)
         if not finish["allowed"]:
             return {
@@ -181,21 +242,36 @@ def next_decision(root: Path) -> dict[str, Any]:
                 "executionPerformed": False,
             }
     if lifecycle_state["phase"] == "working":
-        adaptive = trellis_execution.status(root)
-        if adaptive["state"] == "ready" and adaptive["verificationState"] == "missing":
+        acceptance_state = acceptance.evidence(root)
+        if acceptance_state["required"] and not acceptance_state["satisfied"]:
+            guided_blocked = not acceptance_state["guidedAcceptance"]["satisfied"]
+            host_action = acceptance_state.get("hostTest", {}).get("action")
+            unchanged_failed = acceptance_state.get("hostTest", {}).get("state") == "failed" and host_action is None
             return {
                 "schemaVersion": 1,
-                "command": command_line(
-                    root,
-                    "do",
-                    "verify",
-                    "--level",
-                    adaptive["requiredLevel"],
-                    "--command",
-                    adaptive["command"],
-                    "--scope",
-                    adaptive["scope"],
+                "command": acceptance_state["next"],
+                "reason": (
+                    "Local guided acceptance found a blocking implementation-quality issue; "
+                    "repair the change and record verification for the new snapshot."
+                    if guided_blocked
+                    else "The current host verification already failed for unchanged inputs; diagnose or change the affected scope before retrying."
+                    if unchanged_failed
+                    else f"Declared acceptance is {acceptance_state['state']}; verification is the next step."
                 ),
+                "reasonCode": "guided-acceptance-blocked" if guided_blocked else "acceptance-unchanged-failure" if unchanged_failed else "acceptance-verification-required",
+                "suggestedLevel": "L1",
+                "acceptance": acceptance_state,
+                **({"action": host_action} if host_action is not None else {}),
+                "executionPerformed": False,
+            }
+        adaptive = trellis_execution.status(root)
+        if adaptive["state"] == "ready" and adaptive["verificationState"] == "missing":
+            action = verification.host_action(
+                root, adaptive["requiredLevel"], adaptive["command"], adaptive["scope"]
+            )
+            return {
+                "schemaVersion": 1,
+                "command": action["hostCommand"],
                 "reason": (
                     f"The adaptive Trellis {adaptive['profile']} profile requires one reusable "
                     f"{adaptive['requiredLevel']} host check before lifecycle checking."
@@ -203,6 +279,7 @@ def next_decision(root: Path) -> dict[str, Any]:
                 "reasonCode": "adaptive-trellis-verification-required",
                 "suggestedLevel": "L1",
                 "trellisExecution": adaptive,
+                "action": action,
                 "executionPerformed": False,
             }
         if adaptive["state"] == "ready" and adaptive["verificationState"] == "blocked-unchanged-failure":
@@ -271,6 +348,7 @@ def build(root: Path) -> dict[str, Any]:
     project_mode = workflow_projection.status(root)
     change_set = changesets.summary(root)
     verification_state = verification.summary(root)
+    acceptance_state = acceptance.evidence(root)
     trellis_execution_state = trellis_execution.status(
         root, project_mode=project_mode, change_set=change_set
     )
@@ -307,6 +385,7 @@ def build(root: Path) -> dict[str, Any]:
         "projectMode": project_mode,
         "changeSet": change_set,
         "verification": verification_state,
+        "acceptance": acceptance_state,
         "trellisExecution": trellis_execution_state,
         "repositoryTools": {
             "activeProvider": repository_tool_state["activeProvider"],
@@ -342,6 +421,7 @@ def context_pack(root: Path, token_budget: int = 256) -> dict[str, Any]:
     project_mode = projection.get("projectMode") or {"mode": "unavailable"}
     change_set = projection.get("changeSet") or {"changedFileCount": 0}
     verification_state = projection.get("verification") or {"pendingSessionCount": 0, "levels": {}}
+    acceptance_state = projection.get("acceptance") or {"state": "not-declared", "satisfied": False}
     lines = [
         "HelloDev resume",
         f"phase: {projection['lifecyclePhase'] or 'uninitialized'}",
@@ -353,6 +433,7 @@ def context_pack(root: Path, token_budget: int = 256) -> dict[str, Any]:
             else "work: none"
         ),
         f"gate: {projection['gateState']} policy={projection.get('finishPolicy', 'suggest')}",
+        f"acceptance: {acceptance_state['state']} satisfied={str(acceptance_state.get('satisfied', False)).lower()}",
         f"changes: {change_set['changedFileCount']}",
         (
             "verification: "

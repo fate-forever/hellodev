@@ -10,12 +10,13 @@ from typing import Any, Literal, cast
 from .context_runtime.contracts import RepositoryFile, RepositorySnapshot
 from .context_runtime.native import snapshot as repository_snapshot
 from .project import ProjectError, ProjectPaths, load_config, utc_now, write_json
+from .python_impact import override_forwarding_analysis
 from .state_lock import locked_state
 
 
 Scope = Literal["code", "docs", "project"]
 SCOPES = {"code", "docs", "project"}
-STORE_SCHEMA_VERSION = 1
+STORE_SCHEMA_VERSION = 2
 DOC_SUFFIXES = {".md", ".rst", ".txt"}
 DOC_ROOTS = {"docs", "doc", "documentation"}
 DOC_NAMES = {"readme", "readme.md", "license", "license.md", "changelog", "changelog.md"}
@@ -87,6 +88,7 @@ def capture_baseline(root: Path) -> dict[str, Any]:
     load_config(root)
     current = repository_snapshot(root)
     value = identities(current)
+    quality = override_forwarding_analysis(current.files, current.files) if current.state == "complete" else None
     store = {
         "schemaVersion": STORE_SCHEMA_VERSION,
         "capturedAt": utc_now(),
@@ -94,6 +96,11 @@ def capture_baseline(root: Path) -> dict[str, Any]:
         "scopeSnapshots": value["scopeSnapshots"],
         "scanState": value["scanState"],
         "entries": value["entries"],
+        "qualityBaseline": {
+            "state": "ready" if quality is not None else "unavailable",
+            "overrideForwardingIssueHashes": [] if quality is None else quality["issueHashes"],
+            "parseErrorCount": 0 if quality is None else quality["parseErrorCount"],
+        },
     }
     with locked_state(root, "changeset"):
         write_json(ProjectPaths(root).changeset_file, store)
@@ -111,7 +118,7 @@ def _load(root: Path) -> dict[str, Any] | None:
         value = json.loads(path.read_text(encoding="utf-8"))
     except (OSError, json.JSONDecodeError) as error:
         raise ProjectError(f"invalid ChangeSet baseline: {error}") from error
-    if not isinstance(value, dict) or value.get("schemaVersion") != STORE_SCHEMA_VERSION:
+    if not isinstance(value, dict) or value.get("schemaVersion") not in {1, STORE_SCHEMA_VERSION}:
         raise ProjectError("invalid ChangeSet baseline schema")
     entries = value.get("entries")
     if not isinstance(entries, list) or any(
@@ -122,6 +129,20 @@ def _load(root: Path) -> dict[str, Any] | None:
         for item in entries
     ):
         raise ProjectError("invalid ChangeSet baseline entries")
+    quality = value.get("qualityBaseline")
+    if value["schemaVersion"] == STORE_SCHEMA_VERSION:
+        if (
+            not isinstance(quality, dict)
+            or set(quality) != {"state", "overrideForwardingIssueHashes", "parseErrorCount"}
+            or quality.get("state") not in {"ready", "unavailable"}
+            or not isinstance(quality.get("overrideForwardingIssueHashes"), list)
+            or len(quality["overrideForwardingIssueHashes"]) > 256
+            or any(not isinstance(item, str) or len(item) != 64 for item in quality["overrideForwardingIssueHashes"])
+            or not isinstance(quality.get("parseErrorCount"), int)
+        ):
+            raise ProjectError("invalid ChangeSet quality baseline")
+    else:
+        value = {**value, "qualityBaseline": {"state": "legacy-unavailable", "overrideForwardingIssueHashes": [], "parseErrorCount": 0}}
     return value
 
 
@@ -162,6 +183,7 @@ def changed_files_for_analysis(root: Path) -> dict[str, Any]:
         "changedFiles": selected,
         "deletedCount": len(deleted),
         "scanState": current_snapshot.state,
+        "qualityBaseline": baseline["qualityBaseline"],
     }
 
 
@@ -212,6 +234,7 @@ def summary(root: Path) -> dict[str, Any]:
         "repositorySnapshot": current["repositorySnapshot"],
         "rawPathsPersisted": False,
         "rawSourcePersisted": False,
+        "qualityBaselineState": baseline["qualityBaseline"]["state"],
     }
 
 

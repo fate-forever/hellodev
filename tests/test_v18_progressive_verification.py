@@ -33,7 +33,10 @@ class V18ProgressiveVerificationTests(unittest.TestCase):
         root = Path(directory)
         (root / "src.py").write_text("VALUE = 1\n", encoding="utf-8")
         client = ProjectClient(root)
-        client.do("begin", {"goal": "Progressive verification"})
+        client.do(
+            "begin",
+            {"goal": "Progressive verification", "acceptance": "project verification succeeds"},
+        )
         return root, client
 
     def test_success_is_reused_only_for_the_exact_snapshot(self) -> None:
@@ -155,7 +158,7 @@ class V18ProgressiveVerificationTests(unittest.TestCase):
             self.assertEqual(len(TOOL_NAMES), 6)
             self.assertIn("hellodev_do", TOOL_NAMES)
             control = dashboard.snapshot(root, "instance", "started")
-            self.assertEqual(control["schemaVersion"], 16)
+            self.assertEqual(control["schemaVersion"], 23)
             self.assertEqual(control["verification"]["sourceTrust"], "host-asserted")
             self.assertFalse(control["verification"]["rawCommandPersisted"])
 

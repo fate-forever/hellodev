@@ -61,26 +61,28 @@ class F1CliTests(unittest.TestCase):
             main(["--help"])
         self.assertEqual(stopped.exception.code, 0)
         text = stdout.getvalue()
-        self.assertIn("daily = open -> next -> do", text)
+        self.assertIn("daily = open -> do begin --goal/--acceptance -> next", text)
         self.assertIn("recovery = resume", text)
-        self.assertIn("advanced = host, policy, drift, optimize", text)
+        self.assertIn("advanced =", text)
+        self.assertIn("host, policy, drift, optimize", text)
         self.assertIn("usage, delegate, audit", text)
 
     def test_open_next_and_context_selection_are_compact_and_idempotent(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
             opened = run_cli("--root", str(root), "open")
-            self.assertTrue(opened["created"])
+            self.assertEqual(set(opened), {"task", "phase", "blockers", "acceptance", "next", "approval"})
             self.assertEqual(opened["phase"], "started")
-            self.assertEqual(opened["next"]["command"], "hellodev do plan")
+            self.assertIn("hellodev do begin", opened["next"]["command"])
+            self.assertEqual(opened["next"]["action"]["kind"], "begin-work")
 
             resumed = run_cli("--root", str(root), "open")
-            self.assertFalse(resumed["created"])
+            self.assertEqual(set(resumed), set(opened))
             self.assertEqual(resumed["phase"], "started")
             next_step = run_cli("--root", str(root), "next")
             status = run_cli("--root", str(root), "status")
-            self.assertEqual(next_step["command"], "hellodev do plan")
-            self.assertEqual(next_step["suggestedLevel"], "L1")
+            self.assertIn("hellodev do begin", next_step["command"])
+            self.assertEqual(next_step["suggestedLevel"], "L0")
             self.assertLessEqual(len(json.dumps(next_step).encode("utf-8")), 1024)
             self.assertLessEqual(len(json.dumps(status).encode("utf-8")), 1024)
 
@@ -95,16 +97,16 @@ class F1CliTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
             run_cli("--root", str(root), "open")
-            created = run_cli("--root", str(root), "do", "task", "create", "--title", "F1 task")
-            self.assertEqual(created["backend"], "hellodev-local")
-            self.assertEqual(created["result"]["title"], "F1 task")
-            for intent, phase in (("plan", "planned"), ("work", "working"), ("check", "checking")):
+            created = run_cli(
+                "--root", str(root), "do", "begin", "--goal", "F1 task", "--acceptance", "tests pass"
+            )
+            self.assertEqual(created["backend"], "hellodev-or-trellis")
+            self.assertEqual(created["workItem"]["backend"], "local")
+            for intent, phase in (("work", "working"),):
                 result = run_cli("--root", str(root), "do", intent)
                 self.assertEqual(result["lifecycle"]["phase"], phase)
-            finished = run_cli("--root", str(root), "do", "finish")
-            self.assertEqual(finished["lifecycle"]["phase"], "finished")
-            self.assertFalse(finished["rememberSuggestion"]["writePerformed"])
-            self.assertIn("do remember", finished["rememberSuggestion"]["command"])
+            with self.assertRaises(AssertionError):
+                run_cli("--root", str(root), "do", "finish")
 
     def test_strict_and_trusted_local_use_same_do_command_then_lease(self) -> None:
         with tempfile.TemporaryDirectory() as directory:

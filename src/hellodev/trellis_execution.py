@@ -6,12 +6,13 @@ import json
 from pathlib import Path
 from typing import Any
 
-from . import changesets, contracts, verification, workflow_projection
+from . import changesets, contracts, typescript_impact, verification, workflow_projection
 from .context_runtime import semantic
 from .project import ProjectError, project_initialized
 
 
 MAX_TASK_METADATA_BYTES = 64 * 1024
+MAX_TEST_EVIDENCE_FILES = 200
 HIGH_RISK_TERMS = {
     "auth", "authorization", "database", "deploy", "deployment", "migration",
     "permission", "release", "schema", "security",
@@ -97,7 +98,7 @@ def _safe_file(path: Path, limit: int = 1024 * 1024) -> bool:
         return False
 
 
-def _package_test_command(root: Path) -> str | None:
+def _package_scripts(root: Path) -> tuple[dict[str, str], str] | None:
     package = root / "package.json"
     if not _safe_file(package):
         return None
@@ -106,32 +107,94 @@ def _package_test_command(root: Path) -> str | None:
     except (OSError, UnicodeError, json.JSONDecodeError):
         return None
     scripts = value.get("scripts") if isinstance(value, dict) else None
-    if not isinstance(scripts, dict) or not isinstance(scripts.get("test"), str) or not scripts["test"].strip():
+    if not isinstance(scripts, dict):
+        return None
+    selected = {
+        name: command.strip()
+        for name, command in scripts.items()
+        if isinstance(name, str) and isinstance(command, str) and command.strip()
+    }
+    if "test" not in selected:
         return None
     if _safe_file(root / "pnpm-lock.yaml"):
-        return "pnpm test"
-    if _safe_file(root / "yarn.lock"):
-        return "yarn test"
-    return "npm test"
+        manager = "pnpm"
+    elif _safe_file(root / "yarn.lock"):
+        manager = "yarn"
+    else:
+        manager = "npm"
+    return selected, manager
 
 
+def _package_test_command(root: Path) -> str | None:
+    package = _package_scripts(root)
+    if package is None:
+        return None
+    _, manager = package
+    return f"{manager} test"
+
+
+def _python_evidence(root: Path) -> bool:
+    explicit = ("pyproject.toml", "pytest.ini", "tox.ini", "setup.cfg")
+    if any(_safe_file(root / name) for name in explicit):
+        return True
+    tests = root / "tests"
+    if tests.is_symlink() or not tests.is_dir():
+        return False
+    try:
+        candidates = list(tests.glob("test_*.py")) + list(tests.glob("*_test.py"))
+    except OSError:
+        return False
+    return 0 < len(candidates) <= MAX_TEST_EVIDENCE_FILES and all(_safe_file(path) for path in candidates)
+
+
+def verification_plan(root: Path, profile: str = "standard", acceptance_text: str | None = None) -> dict[str, Any]:
+    """Discover a bounded ordered host plan without executing or shell-chaining commands."""
+    if profile not in {"quick", "standard", "strict"}:
+        raise ProjectError("verification profile must be quick, standard, or strict")
+    level = "T0" if profile == "quick" else "T1" if profile == "standard" else "T2"
+    scope = "docs" if profile == "quick" else "code" if profile == "standard" else "project"
+    if profile == "quick":
+        git_marker = root / ".git"
+        command = "git diff --check" if git_marker.exists() and not git_marker.is_symlink() else None
+        return {"state": "ready" if command else "unavailable", "steps": [] if command is None else [{"command": command, "level": level, "scope": scope, "kind": "diff-check"}], "discovery": "bounded-project-contract"}
+    verify_script = root / "scripts" / "verify.py"
+    if _safe_file(verify_script):
+        command = f"python scripts/verify.py --scope {'fast' if profile == 'standard' else 'full'}"
+        return {"state": "ready", "steps": [{"command": command, "level": level, "scope": scope, "kind": "project-verify"}], "discovery": "explicit-verify-script"}
+    package = _package_scripts(root)
+    python = _python_evidence(root)
+    if package is not None and python:
+        return {"state": "ambiguous", "steps": [], "discovery": "mixed-runtime-manifests"}
+    if package is not None:
+        scripts, manager = package
+        steps = [{"command": f"{manager} test", "level": level, "scope": scope, "kind": "test"}]
+        criterion = (acceptance_text or "").lower()
+        requests_typecheck = any(term in criterion for term in ("typecheck", "type check", "tsc"))
+        if requests_typecheck and "typecheck" in scripts:
+            command = "yarn typecheck" if manager == "yarn" else f"{manager} run typecheck"
+            steps.append({"command": command, "level": level, "scope": scope, "kind": "typecheck"})
+        return {"state": "ready", "steps": steps, "discovery": "package-manifest-first"}
+    if python:
+        return {"state": "ready", "steps": [{"command": "python -m pytest -q", "level": level, "scope": scope, "kind": "test"}], "discovery": "python-project-evidence"}
+    return {"state": "unavailable", "steps": [], "discovery": "runtime-unavailable"}
 def _command(root: Path, profile: str) -> tuple[str | None, str, str]:
     if profile == "quick":
         git_marker = root / ".git"
         if git_marker.exists() and not git_marker.is_symlink():
             return "git diff --check", "T0", "docs"
         return None, "T0", "docs"
-    verify_script = root / "scripts" / "verify.py"
-    if _safe_file(verify_script):
-        scope = "fast" if profile == "standard" else "full"
-        return f"python scripts/verify.py --scope {scope}", "T1" if profile == "standard" else "T2", "code" if profile == "standard" else "project"
-    tests_dir = root / "tests"
-    if _safe_file(root / "pyproject.toml") or (tests_dir.is_dir() and not tests_dir.is_symlink()):
-        return "python -m pytest -q", "T1" if profile == "standard" else "T2", "code" if profile == "standard" else "project"
-    package_command = _package_test_command(root)
-    if package_command is not None:
-        return package_command, "T1" if profile == "standard" else "T2", "code" if profile == "standard" else "project"
-    return None, "T1" if profile == "standard" else "T2", "code" if profile == "standard" else "project"
+    plan = verification_plan(root, profile)
+    if not plan["steps"]:
+        return None, "T1" if profile == "standard" else "T2", "code" if profile == "standard" else "project"
+    step = plan["steps"][0]
+    return step["command"], step["level"], step["scope"]
+
+
+def project_command(root: Path, profile: str = "standard") -> tuple[str | None, str, str]:
+    """Discover one bounded host command without requiring a Trellis task."""
+    if profile not in {"quick", "standard", "strict"}:
+        raise ProjectError("verification profile must be quick, standard, or strict")
+    return _command(Path(root), profile)
 
 
 def status(
@@ -180,6 +243,9 @@ def status(
         inputs = changesets.changed_files_for_analysis(selected)
         if inputs["state"] == "ready":
             semantic_impact = semantic.change_impact(inputs["repositoryFiles"], inputs["changedFiles"])
+            typescript = typescript_impact.change_impact(inputs["repositoryFiles"], inputs["changedFiles"])
+            if typescript["state"] != "not-applicable":
+                semantic_impact = typescript
         else:
             semantic_impact = {
                 "state": inputs["state"],
@@ -215,6 +281,18 @@ def status(
             "estimatedAvoidedDurationMs": 0,
         }
     evidence = verification.inspect(selected, level, command, scope)
+    coverage = None
+    if profile == "standard" and int(current_changes.get("changedFileCount", 0)) <= 5 and evidence["state"] == "missing":
+        coverage = verification.coverage(selected, level, scope)
+        if coverage["covered"]:
+            evidence = {
+                **evidence,
+                "state": "covered-success",
+                "runRequired": False,
+                "reasonCode": "same-snapshot-equal-or-stronger-host-evidence",
+                "reusedRecordId": coverage["reusedRecordId"],
+                "estimatedAvoidedDurationMs": 0,
+            }
     return {
         **base,
         "state": "ready",
@@ -233,7 +311,9 @@ def status(
         "failedRecordId": evidence.get("failedRecordId"),
         "pendingSessionId": evidence.get("sessionId"),
         "estimatedAvoidedDurationMs": evidence.get("estimatedAvoidedDurationMs", 0),
+        "coverageEvidence": coverage,
+        "commandEquivalenceClaimed": False,
     }
 
 
-__all__ = ["status"]
+__all__ = ["project_command", "status", "verification_plan"]

@@ -21,6 +21,8 @@ _COMMAND_FIELDS = {
     "next",
     "nextCommand",
     "recoveryCommand",
+    "recordFailureCommand",
+    "recordSuccessCommand",
     "repairCommand",
     "resumeCommand",
     "warningCommand",

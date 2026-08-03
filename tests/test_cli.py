@@ -86,7 +86,7 @@ class HelloDevCliTests(unittest.TestCase):
             _, status = run_cli("--root", str(root), "status")
             _, verbose = run_cli("--root", str(root), "status", "--verbose")
             self.assertEqual(started["phase"], "started")
-            self.assertEqual(started["next"], "hellodev do plan")
+            self.assertEqual(started["next"], 'hellodev do begin --goal "<goal>" --acceptance "<acceptance>"')
             self.assertEqual(status["phase"], "started")
             self.assertEqual(verbose["capabilities"]["state"], "fresh")
             self.assertEqual(verbose["lifecycle"]["phase"], "started")
@@ -101,7 +101,7 @@ class HelloDevCliTests(unittest.TestCase):
             with contextlib.redirect_stdout(stdout), contextlib.redirect_stderr(stderr):
                 code = main(["--root", str(root), "lifecycle", "finish"])
             self.assertEqual(code, 2)
-            self.assertIn("cannot transition", stderr.getvalue())
+            self.assertIn("finish blocked", stderr.getvalue())
             _, planned = run_cli("--root", str(root), "lifecycle", "plan", "--note", "task planned")
             _, working = run_cli("--root", str(root), "lifecycle", "work")
             _, blocked = run_cli("--root", str(root), "lifecycle", "block", "--note", "waiting")
@@ -518,7 +518,7 @@ class HelloDevCliTests(unittest.TestCase):
             with opener.open(f"http://127.0.0.1:{port}/api/status", timeout=2) as response:
                 etag = response.headers["ETag"]
                 dashboard = json.loads(response.read().decode("utf-8"))
-            self.assertEqual(dashboard["schemaVersion"], 16)
+            self.assertEqual(dashboard["schemaVersion"], 23)
             self.assertTrue(etag.startswith('"') and etag.endswith('"'))
             cached_request = urllib.request.Request(
                 f"http://127.0.0.1:{port}/api/status",

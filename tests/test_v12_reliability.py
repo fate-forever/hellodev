@@ -221,7 +221,11 @@ class V12ReliabilityTests(unittest.TestCase):
 
             contracts.create_work_item(root, "trellis", task.name)
             for phase in ("planned", "working", "checking", "finished"):
-                lifecycle.transition(root, phase)
+                lifecycle.transition(
+                    root,
+                    phase,
+                    _managed_closure_verified=phase == "finished",
+                )
             gate = gates.status(root)
             self.assertEqual(gate["lifecycleConsistency"]["state"], "attention")
             checks = {item["name"]: item for item in _doctor(root)["checks"]}

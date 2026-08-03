@@ -94,7 +94,7 @@ class V197SemanticContextTests(unittest.TestCase):
             self.assertNotIn("fresh-", serialized)
             self.assertFalse(state["rawContentPersisted"])
             control = dashboard.snapshot(root, "instance", "started")
-            self.assertEqual(control["schemaVersion"], 16)
+            self.assertEqual(control["schemaVersion"], 23)
             self.assertEqual(control["contextPlane"]["lastQuery"]["retrieval"]["strategy"], "symbol")
             control_text = json.dumps(control)
             self.assertNotIn("SessionManager", control_text)

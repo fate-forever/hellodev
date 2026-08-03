@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import os
 import re
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
@@ -27,6 +28,10 @@ LEVELS = {"T0", "T1", "T2"}
 OUTCOMES = {"succeeded", "failed"}
 SCOPES = {"code", "docs", "project"}
 DIGEST_PATTERN = re.compile(r"^[0-9a-f]{64}$")
+_WINDOWS_NPM_WRAPPER = re.compile(
+    r"^(?:(?:cmd(?:\.exe)?\s+/c\s+))?npm(?:\.cmd)?(?P<arguments>\s+[^&|<>^\r\n]+)$",
+    re.IGNORECASE,
+)
 ID_PATTERN = re.compile(r"^verification-[0-9]{4,}$")
 SESSION_ID_PATTERN = re.compile(r"^verification-session-[0-9]{4,}$")
 TIMESTAMP_PATTERN = re.compile(r"^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z$")
@@ -67,6 +72,31 @@ def _scope(value: str | None, level: VerificationLevel) -> VerificationScope:
 
 def _digest(value: str) -> str:
     return hashlib.sha256(value.encode("utf-8")).hexdigest()
+
+
+def canonical_command(value: str) -> str:
+    """Canonicalize only explicitly supported npm launcher aliases.
+
+    This is deliberately not shell equivalence.  It covers the three forms
+    observed on Windows hosts while refusing metacharacters and leaving every
+    other command byte-for-byte significant after outer whitespace trimming.
+    """
+
+    selected = _command(value)
+    matched = _WINDOWS_NPM_WRAPPER.fullmatch(selected)
+    if matched is None:
+        return selected
+    arguments = re.sub(r"\s+", " ", matched.group("arguments").strip())
+    return f"npm {arguments}"
+
+
+def executable_command(value: str) -> str:
+    """Render the canonical npm command for the current host shell."""
+
+    selected = canonical_command(value)
+    if os.name == "nt" and selected.startswith("npm "):
+        return f"npm.cmd {selected[4:]}"
+    return selected
 
 
 def _work_item_id(root: Path) -> str | None:
@@ -181,12 +211,44 @@ def _next_id(items: list[dict[str, Any]], prefix: str) -> str:
 
 def _identity(root: Path, command: str, scope: VerificationScope) -> dict[str, Any]:
     scoped = changesets.scope_identity(root, scope)
-    return {"commandSha256": _digest(command), **scoped, "workItemId": _work_item_id(root)}
+    return {"commandSha256": _digest(canonical_command(command)), **scoped, "workItemId": _work_item_id(root)}
 
 
 def _latest_exact(records: list[dict[str, Any]], identity: dict[str, Any], level: VerificationLevel) -> dict[str, Any] | None:
     fields = ("commandSha256", "scope", "scopeSnapshot", "workItemId")
     return next((item for item in reversed(records) if item["level"] == level and all(item[field] == identity[field] for field in fields)), None)
+
+
+def _latest_covering_success(
+    records: list[dict[str, Any]], identity: dict[str, Any], level: VerificationLevel
+) -> dict[str, Any] | None:
+    """Find same-command evidence that is strictly at least as strong.
+
+    A project-scoped receipt can cover code or docs only when its complete
+    repository snapshot is still current.  This avoids treating unrelated
+    scope hashes as interchangeable while allowing the conservative closure
+    plan disclosed at begin to satisfy a later, narrower requirement.
+    """
+
+    level_rank = {"T0": 0, "T1": 1, "T2": 2}
+    required_scope = identity["scope"]
+    for item in reversed(records):
+        if (
+            item["outcome"] != "succeeded"
+            or item["workItemId"] != identity["workItemId"]
+            or item["commandSha256"] != identity["commandSha256"]
+            or level_rank[item["level"]] < level_rank[level]
+        ):
+            continue
+        if item["scope"] == required_scope and item["scopeSnapshot"] == identity["scopeSnapshot"]:
+            return item
+        if (
+            item["scope"] == "project"
+            and required_scope in {"code", "docs"}
+            and item["repositorySnapshot"] == identity["repositorySnapshot"]
+        ):
+            return item
+    return None
 
 
 def _expires_at() -> str:
@@ -300,6 +362,18 @@ def inspect(root: Path, level: str, command: str, scope: str | None = None) -> d
             "failedRecordId": exact["id"],
             "estimatedAvoidedDurationMs": 0,
         }
+    covering = _latest_covering_success(store["records"], identity, selected_level)
+    if covering is not None:
+        return {
+            **base,
+            "state": "covered-success",
+            "runRequired": False,
+            "reasonCode": "same-command-current-snapshot-covered-by-stronger-evidence",
+            "reusedRecordId": covering["id"],
+            "evidenceLevel": covering["level"],
+            "evidenceScope": covering["scope"],
+            "estimatedAvoidedDurationMs": covering["durationMs"],
+        }
     pending = next(
         (
             item for item in reversed(store["sessions"])
@@ -331,6 +405,43 @@ def inspect(root: Path, level: str, command: str, scope: str | None = None) -> d
     }
 
 
+def coverage(root: Path, level: str, scope: str | None = None) -> dict[str, Any]:
+    """Inspect same-snapshot host evidence at an equal or stronger declared level."""
+    selected_level = _level(level)
+    selected_scope = _scope(scope, selected_level)
+    scoped = changesets.scope_identity(root, selected_scope)
+    work_item_id = _work_item_id(root)
+    store = _load(root)
+    rank = {"T0": 0, "T1": 1, "T2": 2}
+    matched = next(
+        (
+            item for item in reversed(store["records"])
+            if item["workItemId"] == work_item_id
+            and item["scope"] == selected_scope
+            and item["scopeSnapshot"] == scoped["scopeSnapshot"]
+            and item["outcome"] == "succeeded"
+            and rank[item["level"]] >= rank[selected_level]
+        ),
+        None,
+    )
+    return {
+        "schemaVersion": 1,
+        "state": "covered-success" if matched is not None else "missing",
+        "covered": matched is not None,
+        "requiredLevel": selected_level,
+        "scope": selected_scope,
+        "scopeSnapshot": scoped["scopeSnapshot"],
+        "workItemId": work_item_id,
+        "reusedRecordId": None if matched is None else matched["id"],
+        "evidenceLevel": None if matched is None else matched["level"],
+        "sourceTrust": "host-asserted",
+        "commandEquivalenceClaimed": False,
+        "readOnly": True,
+        "executionPerformed": False,
+        "persistencePerformed": False,
+    }
+
+
 def _append_record(store: dict[str, Any], identity: dict[str, Any], level: VerificationLevel,
                    outcome: str, duration_ms: int | None, session_id: str | None) -> dict[str, Any]:
     if len(store["records"]) >= MAX_RECORDS:
@@ -345,6 +456,45 @@ def _append_record(store: dict[str, Any], identity: dict[str, Any], level: Verif
     return _normalize_record(item)
 
 
+def _record_identity(
+    root: Path,
+    identity: dict[str, Any],
+    level: VerificationLevel,
+    outcome: str,
+    duration_ms: int | None,
+) -> dict[str, Any]:
+    with locked_state(root, "verification"):
+        store = _load(root)
+        exact = _latest_exact(store["records"], identity, level)
+        if exact is not None:
+            if exact["outcome"] == "succeeded" and outcome == "succeeded":
+                return {"schemaVersion": 2, "state": "already-recorded", "record": exact,
+                        "persistencePerformed": False, "testExecutionPerformed": False,
+                        "trellisGateSatisfied": False}
+            if exact["outcome"] == "failed":
+                raise ProjectError("unchanged failed verification cannot be recorded again; change inputs before retrying")
+            raise ProjectError("refusing contradictory verification outcome for an unchanged successful check")
+        pending = next(
+            (
+                session for session in reversed(store["sessions"])
+                if session["state"] == "pending"
+                and session["level"] == level
+                and all(session[field] == identity[field] for field in ("commandSha256", "scope", "scopeSnapshot", "workItemId"))
+            ),
+            None,
+        )
+        item = _append_record(
+            store, identity, level, outcome, duration_ms,
+            pending["id"] if pending is not None else None,
+        )
+        store["records"].append(item)
+        if pending is not None:
+            pending.update({"state": "consumed", "consumedAt": utc_now(), "outcome": outcome})
+        _write(root, store)
+    return {"schemaVersion": 2, "state": "recorded", "record": item, "persistencePerformed": True,
+            "testExecutionPerformed": False, "trellisGateSatisfied": False}
+
+
 def record(root: Path, level: str, command: str, expected_snapshot: str, outcome: str,
            duration_ms: int | None = None, scope: str | None = None) -> dict[str, Any]:
     selected_level = _level(level)
@@ -357,35 +507,136 @@ def record(root: Path, level: str, command: str, expected_snapshot: str, outcome
     identity = _identity(root, selected_command, selected_scope)
     if identity["repositorySnapshot"] != expected_snapshot:
         raise ProjectError("repository changed after verification planning; replan and rerun the affected check")
+    return _record_identity(root, identity, selected_level, outcome, duration_ms)
+
+
+def record_current(root: Path, level: str, command: str, outcome: str,
+                   duration_ms: int | None = None, scope: str | None = None) -> dict[str, Any]:
+    """Record an explicit host assertion against the repository state observed now."""
+    selected_level = _level(level)
+    selected_command = _command(command)
+    selected_scope = _scope(scope, selected_level)
+    if outcome not in OUTCOMES:
+        raise ProjectError("verification outcome must be succeeded or failed")
+    _validate_duration(duration_ms)
+    identity = _identity(root, selected_command, selected_scope)
+    result = _record_identity(root, identity, selected_level, outcome, duration_ms)
+    return {
+        **result,
+        "recordMode": "atomic-current-snapshot",
+        "currentSnapshotAttested": True,
+        "sourceTrust": "host-asserted",
+    }
+
+
+def record_current_batch(root: Path, results: list[dict[str, Any]]) -> dict[str, Any]:
+    """Record 1..16 bounded host assertions in one application call."""
+
+    if not isinstance(results, list) or not 1 <= len(results) <= 16:
+        raise ProjectError("verification results batch must contain between 1 and 16 items")
+    prepared: list[tuple[VerificationLevel, dict[str, Any], str, int | None]] = []
+    for index, item in enumerate(results):
+        if not isinstance(item, dict) or not set(item).issubset({"level", "command", "scope", "outcome", "durationMs"}):
+            raise ProjectError(f"invalid verification results batch item {index}")
+        if set(item) - {"durationMs"} != {"level", "command", "scope", "outcome"}:
+            raise ProjectError(f"verification results batch item {index} requires level, command, scope, and outcome")
+        level = _level(item["level"])
+        command = _command(item["command"])
+        scope = _scope(item["scope"], level)
+        outcome = item["outcome"]
+        if outcome not in OUTCOMES:
+            raise ProjectError(f"invalid verification results batch outcome at item {index}")
+        duration = item.get("durationMs")
+        _validate_duration(duration)
+        prepared.append((level, _identity(root, command, scope), outcome, duration))
+    identities = [(level, identity["commandSha256"], identity["scope"], identity["scopeSnapshot"]) for level, identity, _, _ in prepared]
+    if len(identities) != len(set(identities)):
+        raise ProjectError("verification results batch contains duplicate command identities")
+
+    recorded = []
+    persistence_performed = False
     with locked_state(root, "verification"):
         store = _load(root)
-        exact = _latest_exact(store["records"], identity, selected_level)
-        if exact is not None:
-            if exact["outcome"] == "succeeded" and outcome == "succeeded":
-                return {"schemaVersion": 2, "state": "already-recorded", "record": exact,
-                        "persistencePerformed": False, "testExecutionPerformed": False, "trellisGateSatisfied": False}
-            if exact["outcome"] == "failed":
-                raise ProjectError("unchanged failed verification cannot be recorded again; change inputs before retrying")
-            raise ProjectError("refusing contradictory verification outcome for an unchanged successful check")
-        pending = next(
-            (
-                session for session in reversed(store["sessions"])
-                if session["state"] == "pending"
-                and session["level"] == selected_level
-                and all(session[field] == identity[field] for field in ("commandSha256", "scope", "scopeSnapshot", "workItemId"))
-            ),
-            None,
-        )
-        item = _append_record(
-            store, identity, selected_level, outcome, duration_ms,
-            pending["id"] if pending is not None else None,
-        )
-        store["records"].append(item)
-        if pending is not None:
-            pending.update({"state": "consumed", "consumedAt": utc_now(), "outcome": outcome})
-        _write(root, store)
-    return {"schemaVersion": 2, "state": "recorded", "record": item, "persistencePerformed": True,
-            "testExecutionPerformed": False, "trellisGateSatisfied": False}
+        # Validate the entire batch before changing the in-memory store.
+        for level, identity, outcome, _ in prepared:
+            exact = _latest_exact(store["records"], identity, level)
+            if exact is not None and not (exact["outcome"] == "succeeded" and outcome == "succeeded"):
+                if exact["outcome"] == "failed":
+                    raise ProjectError("unchanged failed verification cannot be recorded again; change inputs before retrying")
+                raise ProjectError("refusing contradictory verification outcome for an unchanged successful check")
+        for level, identity, outcome, duration in prepared:
+            exact = _latest_exact(store["records"], identity, level)
+            if exact is not None:
+                recorded.append({
+                    "schemaVersion": 2,
+                    "state": "already-recorded",
+                    "record": exact,
+                    "persistencePerformed": False,
+                    "testExecutionPerformed": False,
+                    "trellisGateSatisfied": False,
+                })
+                continue
+            pending = next(
+                (
+                    session for session in reversed(store["sessions"])
+                    if session["state"] == "pending"
+                    and session["level"] == level
+                    and all(session[field] == identity[field] for field in ("commandSha256", "scope", "scopeSnapshot", "workItemId"))
+                ),
+                None,
+            )
+            item = _append_record(store, identity, level, outcome, duration, pending["id"] if pending else None)
+            store["records"].append(item)
+            if pending is not None:
+                pending.update({"state": "consumed", "consumedAt": utc_now(), "outcome": outcome})
+            persistence_performed = True
+            recorded.append({
+                "schemaVersion": 2,
+                "state": "recorded",
+                "record": item,
+                "persistencePerformed": True,
+                "testExecutionPerformed": False,
+                "trellisGateSatisfied": False,
+            })
+        if persistence_performed:
+            _write(root, store)
+    return {
+        "schemaVersion": 1,
+        "state": "recorded",
+        "recordMode": "bounded-batch-current-snapshot",
+        "resultCount": len(recorded),
+        "results": recorded,
+        "persistencePerformed": persistence_performed,
+        "sourceTrust": "host-asserted",
+        "currentSnapshotAttested": True,
+        "testExecutionPerformed": False,
+        "rawOutputPersisted": False,
+    }
+
+
+def host_action(root: Path, level: str, command: str, scope: str | None = None) -> dict[str, Any]:
+    """Return one compact host command plus exact atomic receipt continuations."""
+    selected_level = _level(level)
+    selected_command = _command(command)
+    host_command = executable_command(selected_command)
+    selected_scope = _scope(scope, selected_level)
+    base = [
+        "do", "verify", "--level", selected_level, "--command", selected_command,
+        "--scope", selected_scope, "--current-snapshot",
+    ]
+    return {
+        "schemaVersion": 1,
+        "kind": "host-verification",
+        "hostCommand": host_command,
+        "recordSuccessCommand": command_line(root, *base, "--outcome", "succeeded", "--duration-ms", "<milliseconds>"),
+        "recordFailureCommand": command_line(root, *base, "--outcome", "failed", "--duration-ms", "<milliseconds>"),
+        "sourceTrust": "host-asserted",
+        "currentSnapshotRequired": True,
+        "testExecutionPerformed": False,
+        "helpOrStatusProbeRequired": False,
+        "canonicalCommand": canonical_command(selected_command),
+        "launcherAliasPolicy": "bounded-npm-windows",
+    }
 
 
 def record_session(root: Path, session_id: str, outcome: str, duration_ms: int | None = None) -> dict[str, Any]:
@@ -438,12 +689,20 @@ def summary(root: Path) -> dict[str, Any]:
     current_records = [item for item in store["records"] if item["workItemId"] == work_item_id and snapshots.get(item["scope"]) == item["scopeSnapshot"]]
     pending = [item for item in store["sessions"] if item["state"] == "pending" and not _expired(item)]
     expired = [item for item in store["sessions"] if item["state"] == "pending" and _expired(item)]
+    work_item_records = [item for item in store["records"] if item["workItemId"] == work_item_id]
+    successful = [item for item in work_item_records if item["outcome"] == "succeeded"]
+    distinct_commands = {item["commandSha256"] for item in successful}
+    distinct_snapshots = {item["scopeSnapshot"] for item in successful}
     return {
         "schemaVersion": 2,
         "state": "ready" if snapshots or not (store["records"] or store["sessions"]) else "scope-unavailable",
         "recordCount": len(store["records"]), "currentRecordCount": len(current_records),
+        "workItemRecordCount": len(work_item_records),
         "reusableSuccessCount": sum(item["outcome"] == "succeeded" for item in current_records),
         "blockedFailureCount": sum(item["outcome"] == "failed" for item in current_records),
+        "distinctCommandCount": len(distinct_commands),
+        "distinctSnapshotCount": len(distinct_snapshots),
+        "repeatedCommandCount": max(0, len(successful) - len(distinct_commands)),
         "levels": {level: sum(item["level"] == level for item in current_records) for level in ("T0", "T1", "T2")},
         "scopes": {scope: sum(item["scope"] == scope for item in current_records) for scope in ("code", "docs", "project")},
         "pendingSessionCount": len(pending), "expiredSessionCount": len(expired),
@@ -454,4 +713,7 @@ def summary(root: Path) -> dict[str, Any]:
     }
 
 
-__all__ = ["inspect", "plan", "record", "record_session", "summary"]
+__all__ = [
+    "canonical_command", "coverage", "executable_command", "host_action", "inspect", "plan",
+    "record", "record_current", "record_current_batch", "record_session", "summary",
+]

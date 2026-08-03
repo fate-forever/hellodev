@@ -1,0 +1,111 @@
+{
+  "schemaVersion": 1,
+  "version": "0.20.9",
+  "evaluatedAt": "2026-08-03",
+  "task": "production-p1-weekly-goals-and-shared-review",
+  "design": {
+    "freshAgents": true,
+    "sequential": true,
+    "order": ["direct-r2", "hellodev-0.20.9-trellis"],
+    "sameProductBaseline": true,
+    "treatmentSetupDifference": "project-local Trellis memory and AGENTS.md workflow instruction",
+    "judgeVisibleToAgents": false
+  },
+  "excludedRuns": [
+    {
+      "group": "direct",
+      "reason": "Codex interruption occurred before finish-run; stopwatch included downtime"
+    }
+  ],
+  "groups": {
+    "direct": {
+      "candidate": "benchmarks/production_p1_0209_ab/direct_r2",
+      "initialCommit": "997117c7f71e25bf69037543393c8036ffb61473",
+      "monotonicDurationMs": 1681293.28,
+      "preEditCheck": "passed-zero-diff",
+      "codeModified": true,
+      "mandatoryGatesPassed": true,
+      "staticDiscoverySignals": 10,
+      "staticDiscoverySignalsTotal": 10,
+      "unitComponentTestsPassed": 66,
+      "integrationTestsPassed": 29,
+      "externalE2ePassed": 14,
+      "externalE2eTotal": 16,
+      "tokenUsage": {
+        "inputTokens": 6777928,
+        "cachedInputTokens": 6557952,
+        "uncachedInputTokens": 219976,
+        "outputTokens": 38582,
+        "reasoningOutputTokens": 4145,
+        "totalTokens": 6816510,
+        "uncachedInputPlusOutput": 258558,
+        "measurement": "exact-runtime-observed",
+        "attestation": "none",
+        "providerSigned": false
+      },
+      "tokenState": "available-runtime-unattested"
+    },
+    "treatment": {
+      "candidate": "benchmarks/production_p1_0209_ab/hellodev",
+      "initialCommit": "d3a281c9e73f337648a31af52653b2924e19dfaf",
+      "hellodevVersion": "0.20.9",
+      "monotonicDurationMs": 1508397.69,
+      "preEditCheck": "passed-zero-diff",
+      "codeModified": true,
+      "mandatoryGatesPassed": true,
+      "staticDiscoverySignals": 10,
+      "staticDiscoverySignalsTotal": 10,
+      "unitComponentTestsPassed": 66,
+      "integrationTestsPassed": 32,
+      "externalE2ePassed": 16,
+      "externalE2eTotal": 16,
+      "requirementsSource": {
+        "path": "TASK.md",
+        "lineCount": 23,
+        "byteCount": 1141,
+        "sha256": "72c0d6914397de7e91cd51a5a94ffd76602c76d984977672d4b295ecc0c01d72",
+        "state": "bound"
+      },
+      "closure": {
+        "lifecyclePhase": "finished",
+        "workItemId": "work-0001",
+        "workItemLinkedPhase": "finished",
+        "trellisTaskStatus": "completed",
+        "taskCompleteReceipt": "receipt-0004",
+        "qualityEvidencePresent": true,
+        "verificationRecordCount": 4
+      },
+      "tokenUsage": {
+        "inputTokens": 14680729,
+        "cachedInputTokens": 14456576,
+        "uncachedInputTokens": 224153,
+        "outputTokens": 40086,
+        "reasoningOutputTokens": 4122,
+        "totalTokens": 14720815,
+        "uncachedInputPlusOutput": 264239,
+        "measurement": "exact-runtime-observed",
+        "attestation": "none",
+        "providerSigned": false
+      },
+      "tokenState": "available-runtime-unattested"
+    }
+  },
+  "comparison": {
+    "treatmentMinusDirectMs": -172895.59,
+    "treatmentTimeSavedMs": 172895.59,
+    "treatmentTimeSavedPercent": 10.2835,
+    "treatmentTotalTokenDelta": 7904305,
+    "treatmentTotalTokenDeltaPercent": 115.9582,
+    "treatmentUncachedInputPlusOutputDelta": 5681,
+    "treatmentUncachedInputPlusOutputDeltaPercent": 2.1972,
+    "qualityRegressionObserved": false
+  },
+  "limitations": [
+    "single pair",
+    "treatment ran second and may benefit from warm host caches",
+    "static discovery signals are not a functional hidden score",
+    "runtime token counters are local and unattested rather than provider-signed billing receipts",
+    "monetary cost cannot be derived without the custom provider pricing contract",
+    "Supabase migration was contract-tested but not applied to a live project"
+  ]
+}

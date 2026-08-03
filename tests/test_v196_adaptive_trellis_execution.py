@@ -9,7 +9,7 @@ from pathlib import Path
 PACKAGE_ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(PACKAGE_ROOT / "src"))
 
-from hellodev import capabilities, changesets, contracts, dashboard, lifecycle, onboarding, resume, trellis_execution, verification
+from hellodev import acceptance, capabilities, changesets, contracts, dashboard, lifecycle, onboarding, resume, trellis_bridge, trellis_execution, verification
 from hellodev.application import ProjectClient
 from hellodev.mcp_gateway import TOOL_NAMES
 from hellodev.project import ProjectPaths, init_project
@@ -44,7 +44,8 @@ class V196AdaptiveTrellisExecutionTests(unittest.TestCase):
             encoding="utf-8",
         )
         capabilities.refresh(root)
-        contracts.create_work_item(root, "trellis", task.name)
+        work_item = contracts.create_work_item(root, "trellis", task.name)
+        acceptance.record(root, work_item["id"], "Adaptive Trellis verification", "project verification succeeds")
         changesets.capture_baseline(root)
         return root, ProjectClient(root)
 
@@ -87,14 +88,29 @@ class V196AdaptiveTrellisExecutionTests(unittest.TestCase):
             root, client = self._project(directory)
             (root / "src.py").write_text("VALUE = 2\n", encoding="utf-8")
             first = client.next()
-            self.assertEqual(first["reasonCode"], "adaptive-trellis-verification-required")
-            self.assertEqual(first["command"].count("do verify"), 1)
+            self.assertEqual(first["reasonCode"], "acceptance-verification-required")
+            self.assertEqual(first["command"], "python scripts/verify.py --scope fast")
+            self.assertEqual(first["action"]["hostCommand"], first["command"])
+            self.assertIn("do verify", first["action"]["recordSuccessCommand"])
+            self.assertIn("--current-snapshot", first["action"]["recordSuccessCommand"])
+            self.assertIn("--outcome succeeded", first["action"]["recordSuccessCommand"])
             projection = trellis_execution.status(root)
             planned = verification.plan(root, projection["requiredLevel"], projection["command"], projection["scope"])
             verification.record_session(root, planned["session"]["id"], "succeeded", 91)
             reused = trellis_execution.status(root)
             self.assertEqual(reused["verificationState"], "reused-success")
             self.assertEqual(reused["estimatedAvoidedDurationMs"], 91)
+            self.assertIn("do validate", client.next()["command"])
+            task_record = json.loads(
+                (root / ".trellis" / "tasks" / "07-27-adaptive" / "task.json").read_text(encoding="utf-8")
+            )
+            acceptance.record_context_validation(
+                root,
+                "07-27-adaptive",
+                trellis_bridge.canonical_sha256(task_record),
+                True,
+                "component-protocol",
+            )
             self.assertEqual(client.next()["command"], "hellodev do check")
 
     def test_unchanged_failure_does_not_recommend_rerun(self) -> None:
@@ -105,7 +121,7 @@ class V196AdaptiveTrellisExecutionTests(unittest.TestCase):
             planned = verification.plan(root, projection["requiredLevel"], projection["command"], projection["scope"])
             verification.record_session(root, planned["session"]["id"], "failed", 12)
             decision = client.next()
-            self.assertEqual(decision["reasonCode"], "adaptive-trellis-unchanged-failure")
+            self.assertEqual(decision["reasonCode"], "acceptance-unchanged-failure")
             self.assertNotIn("do verify", decision["command"])
             self.assertIn("status", decision["command"])
 
@@ -132,7 +148,9 @@ class V196AdaptiveTrellisExecutionTests(unittest.TestCase):
             capabilities.refresh(root)
             value = trellis_execution.status(root)
             self.assertEqual(value["state"], "not-applicable")
-            self.assertEqual(resume.next_decision(root)["command"], "hellodev do check")
+            decision = resume.next_decision(root)
+            self.assertEqual(decision["reasonCode"], "work-intake-required")
+            self.assertEqual(decision["action"]["kind"], "begin-work")
 
     def test_projections_are_private_read_only_and_do_not_expand_mcp(self) -> None:
         with tempfile.TemporaryDirectory() as directory:

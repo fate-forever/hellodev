@@ -99,7 +99,7 @@ class V15RepositoryToolTests(unittest.TestCase):
             command.write_bytes(b"fixture-binary")
             with patch("hellodev.repository_tools._candidate", return_value=(command, "environment")):
                 client = ProjectClient(root)
-                opened = client.open()
+                opened = client.open(verbose=True)
                 status = client.status(verbose=True)
                 checks = {item["name"]: item for item in _doctor(root)["checks"]}
                 exported = audit.export(root)
@@ -109,7 +109,7 @@ class V15RepositoryToolTests(unittest.TestCase):
             self.assertEqual(status["repositoryTools"]["suggestedProvider"], "native")
             self.assertEqual(checks["repository-tool-provider"]["state"], "ok")
             self.assertEqual(exported["repositoryTools"]["activationState"], "native-context-plane")
-            self.assertEqual(control["schemaVersion"], 16)
+            self.assertEqual(control["schemaVersion"], 23)
             self.assertEqual(control["diagnostics"]["repositoryTools"]["suggestedProvider"], "native")
             self.assertEqual(integration["repositoryTools"]["state"], "available")
             serialized = json.dumps(exported)

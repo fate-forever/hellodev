@@ -5,6 +5,7 @@ from __future__ import annotations
 import hashlib
 import json
 import re
+import tomllib
 from pathlib import Path
 from typing import Any
 
@@ -20,6 +21,11 @@ MAX_RESULTS = 5
 MAX_EXCERPT_CHARS = 320
 MAX_MEMORY_ITEMS = 5
 MAX_MEMORY_ITEM_CHARS = 1_200
+DEFAULT_TECHNICAL_MEMORY_DOMAIN = "core"
+RUNTIME_RECALL_TERMS = (
+    "vitest", "tsc", "typescript", "pytest", "pyright", "mypy", "ruff",
+    "jest", "playwright", "eslint", "vite", "react",
+)
 QUERY_TOKEN = re.compile(r"[A-Za-z0-9_.-]+|[\u3400-\u9fff]")
 MEMORY_INJECTION_PATTERN = re.compile(
     r"ignore\s+(all\s+)?previous|system\s+prompt|developer\s+message|"
@@ -27,6 +33,7 @@ MEMORY_INJECTION_PATTERN = re.compile(
     r"忽略.{0,12}(指令|提示)|系统提示|执行.{0,12}命令",
     re.IGNORECASE,
 )
+PROJECT_SCOPE_TOKEN = re.compile(r"[^A-Za-z0-9._/-]+")
 
 
 def _query(value: str) -> str:
@@ -144,6 +151,69 @@ def local_recall(root: Path, query: str) -> dict[str, Any]:
     return response
 
 
+def _project_recall_scope(root: Path) -> dict[str, Any]:
+    name: str | None = None
+    source = "directory"
+    pyproject = root / "pyproject.toml"
+    package_json = root / "package.json"
+    if pyproject.is_file() and not pyproject.is_symlink() and pyproject.stat().st_size <= 64 * 1024:
+        try:
+            value = tomllib.loads(pyproject.read_text(encoding="utf-8"))
+            candidate = value.get("project", {}).get("name") if isinstance(value, dict) else None
+            if isinstance(candidate, str):
+                name, source = candidate, "pyproject"
+        except (OSError, UnicodeError, tomllib.TOMLDecodeError):
+            pass
+    if name is None and package_json.is_file() and not package_json.is_symlink() and package_json.stat().st_size <= 64 * 1024:
+        try:
+            value = json.loads(package_json.read_text(encoding="utf-8"))
+            candidate = value.get("name") if isinstance(value, dict) else None
+            if isinstance(candidate, str):
+                name, source = candidate, "package-json"
+        except (OSError, UnicodeError, json.JSONDecodeError):
+            pass
+    normalized = PROJECT_SCOPE_TOKEN.sub("-", (name or root.name).strip()).strip("-./").casefold()
+    if not normalized or normalized in {"all", "boot", "default", "global"}:
+        normalized = "project-" + hashlib.sha256(str(root.resolve()).encode("utf-8")).hexdigest()[:12]
+        source = "root-hash"
+    project_slug = normalized[:56].rstrip("-./")
+    namespace = ("project-" + project_slug)[:64].rstrip("-./")
+    return {
+        "domain": DEFAULT_TECHNICAL_MEMORY_DOMAIN,
+        "namespaceScope": namespace,
+        "limit": 3,
+        "source": source,
+        "domainSource": "technical-memory-default",
+        "namespaceEnforcement": "audit-only-upstream-contract-unavailable",
+    }
+
+
+def _runtime_recall_terms(root: Path, query: str) -> list[str]:
+    text = ""
+    for candidate in (root / "package.json", root / "pyproject.toml"):
+        if candidate.is_symlink() or not candidate.is_file():
+            continue
+        try:
+            if candidate.stat().st_size > 64 * 1024:
+                continue
+            text += "\n" + candidate.read_text(encoding="utf-8").casefold()
+        except (OSError, UnicodeError):
+            continue
+    folded_query = query.casefold()
+    return [term for term in RUNTIME_RECALL_TERMS if term in text and term not in folded_query][:4]
+
+
+def _memory_query(root: Path, query: str) -> tuple[str, list[str]]:
+    terms = _runtime_recall_terms(root, query)
+    selected = query
+    for term in terms:
+        candidate = f"{selected} {term}"
+        if len(candidate) > 1_000:
+            break
+        selected = candidate
+    return selected, terms
+
+
 def recall_plan(
     root: Path,
     query: str,
@@ -164,19 +234,39 @@ def recall_plan(
             "next": "Configure Nocturne to enable narrow long-term-memory fallback.",
             "persisted": False,
         }
+    derived = _project_recall_scope(root)
+    selected_domain = domain if domain is not None else derived["domain"]
+    selected_limit = limit if limit is not None else derived["limit"]
+    selected_namespace = namespace_scope if namespace_scope is not None else derived["namespaceScope"]
+    memory_query, enrichment_terms = _memory_query(root, _query(query))
     plan = intelligence.retrieval_plan(
         root,
         "cross-project",
-        _query(query),
+        memory_query,
         "L0",
-        domain,
-        limit,
-        namespace_scope,
+        selected_domain,
+        selected_limit,
+        selected_namespace,
     )
     return {
         "state": "memory-plan-required",
         "local": local,
         "nocturne": plan["nocturne"],
+        "scopeDerivation": {
+            "state": "derived" if domain is None or limit is None or namespace_scope is None else "explicit",
+            "source": derived["source"],
+            "domainDerived": domain is None,
+            "limitDerived": limit is None,
+            "namespaceDerived": namespace_scope is None,
+            "domainSource": "explicit" if domain is not None else derived["domainSource"],
+            "namespaceEnforcement": derived["namespaceEnforcement"],
+        },
+        "queryEnrichment": {
+            "state": "applied" if enrichment_terms else "not-needed",
+            "terms": enrichment_terms,
+            "source": "bounded-project-runtime-manifest",
+            "automaticRetry": False,
+        },
         "sourceLabel": "Long-term memory",
         "authority": "non-authoritative advisory context",
         "persisted": False,
@@ -203,7 +293,7 @@ def project_memory_result(result: dict[str, Any], local: dict[str, Any], limit: 
         if not isinstance(block, dict) or block.get("type") != "text" or not isinstance(block.get("text"), str):
             continue
         normalized = block["text"].strip()
-        if not normalized:
+        if not normalized or normalized.casefold() in {"[]", "{}", "null", "no memories found", "no memories found."}:
             continue
         digest = hashlib.sha256(normalized.encode("utf-8")).hexdigest()
         if digest in seen:
@@ -227,14 +317,17 @@ def project_memory_result(result: dict[str, Any], local: dict[str, Any], limit: 
         if len(items) >= selected_limit:
             break
     quarantined = sum(1 for item in items if item["quarantined"])
+    accepted = len(items) - quarantined
     return {
+        "state": "accepted" if accepted else "zero-result",
+        "reasonCodes": [] if accepted else ["nocturne-zero-accepted-items"],
         "sourceLabel": "Long-term memory",
         "authority": "non-authoritative advisory context",
         "instructionAuthority": "none",
         "rawResultSha256": raw_digest,
         "rawResultExposed": False,
         "items": items,
-        "acceptedCount": len(items) - quarantined,
+        "acceptedCount": accepted,
         "quarantinedCount": quarantined,
         "deduplicated": True,
         "freshnessPolicy": "unknown-is-not-current",
@@ -242,6 +335,7 @@ def project_memory_result(result: dict[str, Any], local: dict[str, Any], limit: 
         "conflictState": "repository-authority-preferred" if local.get("results") else "no-local-evidence",
         "limits": {"items": selected_limit, "itemChars": MAX_MEMORY_ITEM_CHARS},
         "persisted": False,
+        "automaticRetryPerformed": False,
     }
 
 

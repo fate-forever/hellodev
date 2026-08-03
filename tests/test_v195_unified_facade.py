@@ -36,7 +36,7 @@ class V195UnifiedFacadeTests(unittest.TestCase):
             self.assertEqual(result["selectedTask"], "07-24-facade")
             self.assertEqual(result["projectMode"]["mode"], "trellis-native")
 
-    def test_strict_gate_routes_native_validation_through_do(self) -> None:
+    def test_strict_gate_requires_acceptance_contract_before_native_validation(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
             init_project(root)
@@ -49,8 +49,8 @@ class V195UnifiedFacadeTests(unittest.TestCase):
             contracts.refresh_work_item(root, work["id"])
             blocked = gates.finish_decision(root)
             self.assertFalse(blocked["allowed"])
-            self.assertIn("do validate", blocked["nextCommand"])
-            self.assertNotIn("gate status", blocked["nextCommand"])
+            self.assertEqual(blocked["reasonCode"], "finish-acceptance-contract-required")
+            self.assertIn("do begin", blocked["nextCommand"])
 
     def test_facade_counts_only_observable_generic_escape_hatches(self) -> None:
         with tempfile.TemporaryDirectory() as directory:

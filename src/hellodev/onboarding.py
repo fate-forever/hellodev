@@ -40,9 +40,17 @@ interruption. Direct Trellis access is an advanced escape hatch only when
 HelloDev explicitly reports an unsupported operation; disclose it and return to
 `hellodev next` immediately afterward. For Trellis-backed work, follow the one
 adaptive check returned by `next`; when it reports `reused-success`, do not rerun
-the same check. Do not repeatedly run full Trellis validation during implementation;
+the same check. When `open` or `next` returns `action.kind=begin-work`, fill the
+declared goal and acceptance inputs and execute that action; do not substitute
+`do plan`, initialize Trellis manually, or inspect help. When `next.action.kind` is `host-verification`, run only its
+`hostCommand`, then run the matching `recordSuccessCommand` or
+`recordFailureCommand`; do not probe `--help`, `status`, gates, receipts, or
+internal WorkItems unless `next` explicitly asks. Do not repeatedly run full Trellis validation during implementation;
 the final `do validate` remains authoritative. Before modifying code, execute the bounded context plan returned by
 `do begin` or call `hellodev_context` with the task goal and `scope=code`.
+For a multi-item production request, copy the user's requirement text verbatim
+into one project-relative UTF-8 file and pass it to `do begin` with
+`--requirements-file`; never replace the source brief with an Agent summary.
 FastCtx is optional and never replaces HelloDev's native Context Plane, Trellis
 workflow, Nocturne memory, or HelloDev resume. Ask before consuming an approval
 token or performing an external write, and report tests, gates, and remaining
@@ -62,8 +70,17 @@ escape hatch only when HelloDev explicitly reports an unsupported operation;
 disclose it and return to `hellodev next` immediately afterward.
 
 For Trellis-backed work, follow the one adaptive check returned by `next`. If
-the check is `reused-success`, do not rerun it. Do not repeatedly run full
+the check is `reused-success`, do not rerun it. When `open` or `next` returns
+`action.kind=begin-work`, fill its goal and acceptance inputs and execute it;
+do not substitute `do plan`, initialize Trellis manually, or inspect help. When `next.action.kind` is
+`host-verification`, run only its `hostCommand`, then its matching
+`recordSuccessCommand` or `recordFailureCommand`; do not probe `--help`,
+`status`, gates, receipts, or internal WorkItems unless `next` asks. Do not repeatedly run full
 Trellis validation during implementation; final `do validate` remains authoritative.
+
+For a multi-item production request, copy the user's requirement text verbatim
+into one project-relative UTF-8 file and pass it to `do begin` with
+`--requirements-file`; never replace the source brief with an Agent summary.
 
 Before modifying code, execute the bounded context plan returned by `do begin`
 or call `hellodev_context` with the task goal and `scope=code`. Known-file and

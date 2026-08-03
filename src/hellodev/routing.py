@@ -18,6 +18,7 @@ TRELLIS_TASK_OPERATIONS = {
     "current": ("task-current", "read"),
     "start": ("task-start", "write"),
     "validate": ("task-validate", "read"),
+    "complete": ("task-complete", "write"),
 }
 LIFECYCLE_TARGETS = {"plan": "planned", "work": "working", "check": "checking", "finish": "finished"}
 
@@ -32,9 +33,10 @@ def available_intents() -> list[str]:
         "task create --title TEXT",
         "task list",
         "task show --task TASK_ID (local projects only)",
-        "task current|start|validate --task NATIVE_TASK (Trellis projects)",
-        "validate --task NATIVE_TASK",
+        "task current|start|validate|complete --task NATIVE_TASK (Trellis projects)",
+        "validate --task NATIVE_TASK (context structure only)",
         "verify --level T0|T1|T2 --command COMMAND [--scope code|docs|project]",
+        "verify --level T0|T1|T2 --command COMMAND --current-snapshot --outcome succeeded|failed",
         "verify --session SESSION_ID --outcome succeeded|failed",
         "recall --query TEXT [narrow memory options]",
         "remember --lesson TEXT [--receipt RECEIPT_ID]",
@@ -117,7 +119,10 @@ def decide(root: Path, intent: str, arguments: dict[str, Any] | None = None) -> 
             routed_arguments: dict[str, Any] = {}
             if operation == "create":
                 routed_arguments["title"] = _single_line(values.get("title"), "title", 160)
-            elif operation in {"start", "validate"}:
+                acceptance = values.get("acceptance")
+                if acceptance is not None:
+                    routed_arguments["acceptance"] = _single_line(acceptance, "acceptance", 1000)
+            elif operation in {"start", "validate", "complete"}:
                 routed_arguments["task"] = _single_line(values.get("task"), "task", 96)
             return {
                 **base,
@@ -172,6 +177,7 @@ def decide(root: Path, intent: str, arguments: dict[str, Any] | None = None) -> 
                 "snapshot": values.get("snapshot"),
                 "outcome": values.get("outcome"),
                 "durationMs": values.get("duration_ms"),
+                "currentSnapshotAttested": values.get("current_snapshot") is True,
             }
         return {
             **base,

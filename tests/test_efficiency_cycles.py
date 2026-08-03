@@ -185,7 +185,7 @@ class EfficiencyCycleTests(unittest.TestCase):
             efficiency_cycles.reconcile(root)
 
             active = routing.next_decision(root)
-            self.assertEqual(active["reasonCode"], "lifecycle-planned")
+            self.assertEqual(active["reasonCode"], "work-intake-required")
             self.assertNotIn("efficiency", active)
 
             for phase in ("working", "checking", "finished"):

@@ -1,7 +1,86 @@
 # HelloDev Core change surfaces
 
-Last refreshed: 2026-07-27
-Scope: HelloDev 0.19.7 semantic context and conservative impact analysis
+Last refreshed: 2026-07-31
+Scope: HelloDev 0.20.9 Acceptance Integrity and Atomic Closure
+
+## 0.20.9 change surface
+
+| Change goal | Primary source | Required tests | Preserved boundary |
+|---|---|---|---|
+| Bind original requirements | `acceptance.py`, `project.py`, `application.py`, `cli.py` | `test_v209_acceptance_integrity.py` | Explicit project-relative UTF-8 source only; no transcript scraping, symlinks, absolute paths or silent replacement. |
+| Enforce wide strict completeness | `acceptance.py`, ChangeSet projection | v0.20.9 wide-change regression plus inherited guided acceptance tests | Threshold is conservative and affects closure, not small-task intake. |
+| Make closure invariant uniform | `application.py`, `lifecycle.py`, Trellis bridge/receipts | v0.20.9 bypass regression plus v0.20.8 completion tests | Recoverably ordered fail-closed writes; no cross-file ACID claim and no native authority takeover. |
+| Project sanitized integrity | `dashboard.py`, Dashboard assets, resume/onboarding | Dashboard/privacy and CLI regressions | Raw text, source path and digest stay out of UI; six MCP tools and six-field default open remain unchanged. |
+
+## 0.20.8 change surface
+
+| Change goal | Primary source | Required tests | Preserved boundary |
+|---|---|---|---|
+| Change task-set identity | `adapters/trellis.py`, component task operations | `test_v208_measured_overhead.py`, Trellis intent/component tests | Files and symlinks are not tasks; prepared and executed digests remain identical. |
+| Change host command identity | `verification.py`, routing/action projections | v0.20.8 plus progressive verification/reuse tests | Canonicalization is allowlisted; shell syntax fails safe; evidence remains host-asserted. |
+| Change closure disclosure or batches | `application.py`, `cli.py`, `verification.py` | v0.20.8 CLI/atomicity plus acceptance/resume tests | Plan may tighten; 1-16 results are all-or-nothing; Core does not execute or store output. |
+| Change Trellis quality projection | `trellis_bridge.py` | v0.20.8 completion plus bridge/privacy tests | Merge by verification id; hashes only; never overwrite user/Trellis `quality.json`. |
+
+## 0.20.7 change surface
+
+- `resume.py`, `application.py`, and `gates.py`: authoritative intake action and daily/closure identity gates.
+- `adapters/trellis.py`, `trellis_bridge.py`, and `application.py`: one-operation Trellis create/select/start/bind path with ledger replay and no native fallback.
+- `facade.py`, `cli.py`, `mcp_gateway.py`, and `onboarding.py`: host instructions consume `open/next` actions directly and do not substitute `do plan` or native Trellis initialization.
+- `dashboard.py` and `dashboard_assets/`: schema 23 / Control Center 3.3 sanitized integrity projection.
+- Package/component metadata, public docs, release checklist, and regression tests: version and contract alignment.
+
+The source changes do not add an MCP tool, execute project tests, authorize an adapter implicitly, persist raw task bodies, install a plugin, or modify user configuration.
+
+## Historical 0.20.6 change surface
+
+| Surface | Files | Intended invariant |
+|---|---|---|
+| Runtime discovery | `trellis_execution.py` | Valid package scripts outrank weak directory-name evidence; Python remains supported through explicit manifests/config or bounded Python tests; ambiguous mixed roots fail closed. |
+| Ordered verification | `acceptance.py`, `verification.py` | Project a bounded ordered list, one runnable command at a time; require every current-snapshot step and invalidate coverage when the relevant snapshot changes. |
+| Next routing | `resume.py` | Never attach an executable `action` when `runRequired=false` or an unchanged failure is blocked; `next.command` and action agree. |
+| Compatibility | CLI/MCP/Dashboard/docs/version/tests | Preserve six MCP tools, six-field default `open`, old verification session/snapshot routes, Trellis authorization/authority, host-asserted labels and no raw output/token estimates. |
+
+Product source changes start only after this orientation update and the root progress ledger records 0.20.6 as in progress.
+
+## 0.20.5 change surface
+
+| Change | Primary files | Required proof |
+|---|---|---|
+| Atomic current-snapshot host attestation | `verification.py`, `application.py`, `routing.py`, `cli.py`, `resume.py` | One post-command call records host-asserted evidence without a session; stale/contradictory evidence still fails; session and legacy snapshot paths remain compatible; HelloDev never executes the command. |
+| Compact Agent action contract | `resume.py`, `application.py`, onboarding/quick-start guidance | Missing verification returns one bounded action with host command and exact success/failure receipt commands; ordinary lifecycle decisions discourage help/status probing; default `open` retains exactly six top-level fields. |
+| Deferred automatic usage sync | `application.py`, `usage_collector.py`, usage tests | Default `open` and ordinary `do` never parse an in-flight rollout; verbose open and explicit sync still collect completed turns exactly; unsupported hosts stay unavailable and no token estimate is introduced. |
+| Nocturne technical-memory recall | `knowledge_flows.py`, `intelligence.py`, application/CLI recall execution | Default domain is a valid bounded technical domain; package/runtime terms enrich one query without persisting it; explicit domain/query remains supported; zero accepted items disclose a bounded reason without automatic retries. |
+| Version and compatibility | metadata, Dashboard/docs/tests | Version 0.20.5; exactly six MCP tools; current stores migrate nondestructively; focused, fast/full and isolated-wheel gates pass. |
+
+## 0.20.4 change surface
+
+| Change | Primary files | Required proof |
+|---|---|---|
+| Trellis auto-selection or completion | `task_alignment.py`, `application.py`, `project.py` | Unrelated sole task is not bound; explicit/aligned/created binding is attested; unattested legacy mismatch cannot complete. |
+| Small-task verification reuse | `verification.py`, `trellis_execution.py`, `acceptance.py`, `resume.py` | Same snapshot/equal-or-stronger evidence suppresses one redundant standard check; changed snapshot and strict work remain missing. |
+| TypeScript impact | `typescript_impact.py`, `guided_acceptance.py`, `trellis_execution.py` | Count-only exported declaration references; bounded repositories fail advisory; wide impact only escalates. |
+| Accelerator/provider claims | `repository_tools.py`, Dashboard | Installed command remains `available-not-active`; no MCP connection or execution claim. |
+| Version/UI schema | package metadata, component lock/schema, Dashboard, docs/tests | Version 0.20.4, Dashboard schema 20, Control Center 3.0, exact six MCP tools. |
+
+## 0.20.3 guided acceptance surface
+
+- Guided-mode or blocker changes require `test_v203_guided_acceptance.py` plus 0.20.1/0.20.2 acceptance continuity, progressive verification, Dashboard and six-field `open` regressions.
+- Python impact changes must preserve bounded repository snapshots, baseline subtraction, import/assignment alias handling, parse-failure disclosure and the no-path/no-symbol/no-source output boundary.
+- ChangeSet schema changes must keep schema-1 reads non-destructive, validate bounded SHA-256 lists, refuse symlinks and use the existing atomic state write.
+- Verification diversity is diagnostic over the active WorkItem; it must not change exact current-snapshot reuse, execute tests, or upgrade host assertions to provider-signed evidence.
+
+| Change goal | Primary source | Required tests | Documentation / real checks |
+|---|---|---|---|
+| Change guided acceptance routing | `guided_acceptance.py`, `acceptance.py`, `resume.py`, `application.py` | `test_v203_guided_acceptance.py`, v0.20.1/v0.20.2 flow and default-open shape | `lite/guided/strict` remains deterministic; quality is separate from acceptance coverage; both `check` and `finish` fail closed on active blockers. |
+| Change Python override impact | `python_impact.py`, `changesets.py` | Bottle-like same-file and imported-alias cases, pre-existing issue, legacy baseline and privacy regressions | Analyze in memory only; persist hashes/counts only; do not claim an LSP, full type graph or cross-language coverage. |
+| Change evidence diversity | `verification.py`, `dashboard.py`, Dashboard assets | multi-snapshot repeat test plus Dashboard schema/privacy tests | Aggregate completed WorkItem history while current reuse remains snapshot-bound; retain `sourceTrust=host-asserted`. |
+
+## 0.20.2 component protocol surface
+
+- Protocol changes require adapter, distribution, recovery and privacy tests.
+- Trellis bridge writes must preserve canonical task fields, atomicity, digest guards and upstream workflow authority.
+- Nocturne receipt changes must preserve read-before-write, namespace isolation, idempotent replay and content-free state.
+- Identity changes require synchronized lock, bundle schema, notices and corresponding source.
 
 0.19.7 preserves Trellis authority and the six-tool MCP surface while adding bounded Python symbol retrieval, optional Serena discovery, and escalation-only semantic impact.
 

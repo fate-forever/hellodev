@@ -198,7 +198,7 @@ def build(staging: str | Path, spec_path: str | Path, output: str | Path) -> dic
     for name in components.COMPONENT_NAMES:
         entry = spec["components"][name]
         expected = {
-            "version", "revision", "repository", "licenseSpdx", "command", "args", "cwd",
+            "version", "revision", "repository", "licenseSpdx", "componentIdentity", "protocolVersion", "command", "args", "cwd",
             "dataPolicy", "environment", "identityFiles", "controlledRoots",
         }
         if not isinstance(entry, dict) or set(entry) != expected:
@@ -214,7 +214,7 @@ def build(staging: str | Path, spec_path: str | Path, output: str | Path) -> dic
             raise components.ComponentError(f"{name} environment must be an object")
         for key, value in entry["environment"].items():
             _safe_runtime_value(value, f"{name} environment {key}")
-        for field in ("version", "revision", "repository", "licenseSpdx"):
+        for field in ("version", "revision", "repository", "licenseSpdx", "componentIdentity", "protocolVersion"):
             if entry[field] != lock[name][field]:
                 raise components.ComponentError(f"{name} {field} does not match packaged lock")
         roots = entry["controlledRoots"]

@@ -10,7 +10,7 @@ from unittest.mock import patch
 PACKAGE_ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(PACKAGE_ROOT / "src"))
 
-from hellodev import capabilities, contracts, gates, lifecycle, receipts, resume, routing, sagas
+from hellodev import acceptance, capabilities, contracts, gates, lifecycle, receipts, resume, routing, sagas, verification
 from hellodev.project import create_task, init_project
 
 
@@ -78,10 +78,12 @@ class ResumeGateTests(unittest.TestCase):
             stale = resume.next_decision(root)
             self.assertEqual(stale["command"], f"hellodev work refresh {work['id']}")
 
-    def test_default_suggest_preserves_finish_and_strict_policy_blocks(self) -> None:
+    def test_default_suggest_and_strict_policy_both_require_bound_acceptance(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             root = self._root(directory)
-            self.assertTrue(gates.finish_decision(root)["allowed"])
+            suggested = gates.finish_decision(root)
+            self.assertFalse(suggested["allowed"])
+            self.assertEqual(suggested["reasonCode"], "finish-current-work-required")
             self.assertEqual(gates.policy_show(root)["source"], "default-0.8-compatible")
             gates.policy_set(root, "require-current-gate")
             capabilities.refresh(root)
@@ -94,8 +96,21 @@ class ResumeGateTests(unittest.TestCase):
             root = self._root(directory)
             gates.policy_set(root, "require-current-gate")
             (root / ".trellis" / "tasks" / "07-16-gate").mkdir(parents=True)
+            verify_script = root / "scripts" / "verify.py"
+            verify_script.parent.mkdir()
+            verify_script.write_text("raise SystemExit(0)\n", encoding="utf-8")
             capabilities.refresh(root)
             work = contracts.create_work_item(root, "trellis", "07-16-gate")
+            acceptance.record(root, work["id"], "Verify finish integrity", "project verification succeeds")
+            runtime = acceptance.status(root)["runtime"]
+            verification.record_current(
+                root,
+                runtime["level"],
+                runtime["command"],
+                "succeeded",
+                1,
+                runtime["scope"],
+            )
             evidence = self._gate_receipt(root)
             linked = gates.reconcile(root, evidence["id"])
             self.assertFalse(linked["trellisMutationPerformed"])
