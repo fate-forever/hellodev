@@ -52,7 +52,10 @@ class V13McpTests(unittest.TestCase):
                     self.assertTrue(do_tool.annotations.destructiveHint)
                     opened = await session.call_tool("hellodev_open", {})
                     self.assertFalse(opened.isError)
-                    self.assertEqual(opened.structuredContent["next"]["command"], "hellodev do plan")
+                    self.assertEqual(
+                        opened.structuredContent["next"]["command"],
+                        'hellodev do begin --goal "<goal>" --acceptance "<acceptance>"',
+                    )
                     for name, arguments in (
                         ("hellodev_next", {}),
                         ("hellodev_status", {}),
