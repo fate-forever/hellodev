@@ -49,7 +49,7 @@ class V202AcceptanceFlowTests(unittest.TestCase):
             before = acceptance.evidence(root)
             self.assertEqual(before["state"], "verification-required")
             self.assertEqual(before["hostTest"]["runtime"]["executor"], "host")
-            self.assertEqual(before["hostTest"]["runtime"]["cwd"], str(root))
+            self.assertEqual(before["hostTest"]["runtime"]["cwd"], str(root.resolve()))
             self.assertEqual(before["hostTest"]["runtime"]["environmentHint"], "project-runtime")
 
             _satisfy(client, root)

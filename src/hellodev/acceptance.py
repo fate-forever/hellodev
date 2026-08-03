@@ -11,7 +11,7 @@ from typing import Any
 from . import contracts, guided_acceptance, lifecycle, trellis_execution, verification, workflow_projection
 from .command_rendering import command_line
 from .component_protocol import canonical_sha256
-from .project import ProjectError, ProjectPaths, load_config, utc_now, write_json
+from .project import ProjectError, ProjectPaths, load_config, resolve_root, utc_now, write_json
 from .state_lock import locked_state
 
 
@@ -579,6 +579,7 @@ def _trellis_context_gate(root: Path) -> dict[str, Any]:
 
 def evidence(root: Path, *, include_finish: bool = True) -> dict[str, Any]:
     """Unify acceptance-related evidence without executing a host or Trellis command."""
+    root = resolve_root(root)
     host_test = status(root)
     context_gate = _trellis_context_gate(root)
     guided = guided_acceptance.evaluate(root, host_test["contract"])
