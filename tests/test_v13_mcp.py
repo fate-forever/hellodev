@@ -65,9 +65,19 @@ class V13McpTests(unittest.TestCase):
                         result = await session.call_tool(name, arguments)
                         self.assertFalse(result.isError, name)
                         self.assertIsInstance(result.structuredContent, dict)
-                    planned = await session.call_tool("hellodev_do", {"intent": "plan", "arguments": {}})
-                    self.assertFalse(planned.isError)
-                    self.assertEqual(planned.structuredContent["lifecycle"]["phase"], "planned")
+                    begun = await session.call_tool(
+                        "hellodev_do",
+                        {
+                            "intent": "begin",
+                            "arguments": {
+                                "goal": "MCP smoke",
+                                "acceptance": "MCP smoke completes",
+                            },
+                        },
+                    )
+                    self.assertFalse(begun.isError)
+                    self.assertEqual(begun.structuredContent["state"], "ready")
+                    self.assertEqual(begun.structuredContent["currentTask"]["lifecyclePhase"], "planned")
                     ignored = await session.call_tool("hellodev_status", {"root": str(root.parent)})
                     self.assertTrue(ignored.isError)
                     self.assertFalse((root.parent / ".hellodev").exists())
