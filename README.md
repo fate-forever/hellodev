@@ -78,7 +78,7 @@ hellodev --root . do begin `
 
 完整安装方式、Agent 执行协议、Trellis/Nocturne 接入、恢复与排错见 **[Quick Start](docs/QUICK_START.md)**。
 
-> **发行事实：** Git 仓库只包含 HelloDev Core 源码，不包含 Trellis/Nocturne/FastCtx/Serena 上游源码、Python/Node 运行时或可下载的一体包。0.21.3 在 Core 内提供可审计的原生组件协议和项目级 Agent Skill；自包含 bundle 仍须单独构建，并完整保留 Trellis 的 AGPL-3.0-only 与 Nocturne 的 MIT 许可证、通知和对应源码。本文不宣称 HelloDev 0.21.3 已发布到 PyPI。
+> **发行事实：** Git 仓库只包含 HelloDev Core 源码，不直接 vendoring Trellis/Nocturne/FastCtx/Serena 或平台运行时。GitHub Release `v0.21.3` 另行提供经过 manifest 与离线 smoke 验证的 Windows x86_64 自包含 bundle、Core wheel、SPDX SBOM、第三方通知、校验和，以及 Trellis/Nocturne 的精确对应源码。本文不宣称 HelloDev 0.21.3 已发布到 PyPI。
 
 <details>
 <summary><strong>当前版本与近期演进（0.16.0-0.21.3）</strong></summary>
@@ -419,7 +419,7 @@ py -3.12 -m venv .venv
 .\.venv\Scripts\hellodev.exe --version
 ```
 
-预期版本是 `hellodev 0.21.0`。Python 3.10–3.12 均受源码测试矩阵覆盖。`mcp` extra 用于 Codex/Cursor/Antigravity 的 stdio MCP 接入；只使用 CLI 时可安装 `.`。
+预期版本是 `hellodev 0.21.3`。Python 3.10–3.12 均受源码测试矩阵覆盖。`mcp` extra 用于 Codex/Cursor/Antigravity 的 stdio MCP 接入；只使用 CLI 时可安装 `.`。
 
 在目标项目初始化：
 
@@ -442,15 +442,15 @@ hellodev_status    hellodev_context    hellodev_resume
 从 Release 页面取得与平台匹配的 archive 和 SHA-256，核对后解压到真实目录：
 
 ```powershell
-Get-FileHash .\hellodev-0.21.0-windows-x86_64.zip -Algorithm SHA256
-cd C:\Tools\hellodev-0.21.0-windows-x86_64
+Get-FileHash .\hellodev-0.21.3-windows-x86_64.zip -Algorithm SHA256
+cd C:\Tools\hellodev-0.21.3-windows-x86_64
 .\bin\hellodev.cmd components verify
 .\bin\hellodev.cmd setup
 cd C:\path\to\your-project
-C:\Tools\hellodev-0.21.0-windows-x86_64\bin\hellodev.cmd onboard --host cursor --with-trellis
+C:\Tools\hellodev-0.21.3-windows-x86_64\bin\hellodev.cmd onboard --host cursor --with-trellis
 ```
 
-若对应 0.21.0 bundle 尚未发布，不要把源码仓库当作 bundle，也不要把旧版本 archive 改名冒充。`components verify` 证明本地字节与随包 manifest 一致，不等于数字签名、远程来源证明或法律审查。
+只从 GitHub Release `v0.21.3` 下载同名资产，并先用该 Release 的 `SHA256SUMS` 核对；不要把源码仓库当作 bundle，也不要把旧版本 archive 改名冒充。`components verify` 证明本地字节与随包 manifest 一致，不等于数字签名、远程来源证明或法律审查。
 
 ## Trellis 与 Nocturne 如何接入
 

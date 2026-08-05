@@ -46,7 +46,16 @@ async def _exercise(root: Path) -> dict[str, object]:
                 ("hellodev_status", {}),
                 ("hellodev_resume", {"include_context": True, "token_budget": 256}),
                 ("hellodev_context", {"intent": "status", "token_budget": 256}),
-                ("hellodev_do", {"intent": "plan", "arguments": {}}),
+                (
+                    "hellodev_do",
+                    {
+                        "intent": "begin",
+                        "arguments": {
+                            "goal": "Verify the installed HelloDev MCP transport",
+                            "acceptance": "The official client lists and calls all six tools",
+                        },
+                    },
+                ),
             ):
                 result = await session.call_tool(name, arguments)
                 if result.isError or not isinstance(result.structuredContent, dict):
@@ -64,8 +73,11 @@ async def _exercise(root: Path) -> dict[str, object]:
 
 
 def main() -> int:
-    if __version__ != "0.20.7":
-        raise RuntimeError(f"expected installed HelloDev 0.20.7, found {__version__}")
+    installed_version = version("hellodev-core")
+    if installed_version != __version__:
+        raise RuntimeError(
+            f"installed HelloDev metadata {installed_version} does not match package version {__version__}"
+        )
     if version("mcp") != "1.28.1":
         raise RuntimeError(f"expected official MCP SDK 1.28.1, found {version('mcp')}")
     with tempfile.TemporaryDirectory() as directory:

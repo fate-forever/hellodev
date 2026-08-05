@@ -133,8 +133,14 @@ def main() -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument("--stage", required=True)
     parser.add_argument("--wheelhouse", required=True)
+    parser.add_argument("--distribution-version", required=True)
+    parser.add_argument("--created", required=True, help="SPDX creation time in RFC 3339 UTC form")
     parser.add_argument("--runtime-input", action="append", default=[], metavar="NAME=PATH")
     args = parser.parse_args()
+    if not re.fullmatch(r"[0-9]+\.[0-9]+\.[0-9]+(?:[-+][A-Za-z0-9.-]+)?", args.distribution_version):
+        raise ValueError("--distribution-version must be a bounded semantic version")
+    if not re.fullmatch(r"[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}Z", args.created):
+        raise ValueError("--created must use RFC 3339 UTC form YYYY-MM-DDTHH:MM:SSZ")
     stage = Path(args.stage).resolve()
     wheelhouse = Path(args.wheelhouse).resolve()
     packages = python_packages(stage) + npm_packages(stage)
@@ -184,16 +190,18 @@ def main() -> int:
         "spdxVersion": "SPDX-2.3",
         "dataLicense": "CC0-1.0",
         "SPDXID": "SPDXRef-DOCUMENT",
-        "name": "HelloDev-0.20.7-windows-x86_64",
-        "documentNamespace": "https://github.com/fate-forever/hellodev/sbom/0.20.7/windows-x86_64",
-        "creationInfo": {"created": "2026-07-28T00:00:00Z", "creators": ["Tool: hellodev-generate-bundle-metadata"]},
+        "name": f"HelloDev-{args.distribution_version}-windows-x86_64",
+        "documentNamespace": (
+            f"https://github.com/fate-forever/hellodev/sbom/{args.distribution_version}/windows-x86_64"
+        ),
+        "creationInfo": {"created": args.created, "creators": ["Tool: hellodev-generate-bundle-metadata"]},
         "packages": spdx_packages,
         "relationships": relationships,
     }
     (stage / "SBOM.spdx.json").write_text(json.dumps(sbom, indent=2, sort_keys=True) + "\n", encoding="utf-8")
 
     lines = [
-        "# HelloDev 0.20.7 third-party notices",
+        f"# HelloDev {args.distribution_version} third-party notices",
         "",
         "This Windows archive redistributes independently launched components and runtimes.",
         "The declarations below are inventory metadata, not legal advice or a substitute for the exact license files under `licenses/`.",
