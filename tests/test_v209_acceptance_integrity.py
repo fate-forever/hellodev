@@ -13,7 +13,7 @@ from pathlib import Path
 PACKAGE_ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(PACKAGE_ROOT / "src"))
 
-from hellodev import acceptance, contracts, lifecycle, trellis_bridge
+from hellodev import acceptance, contracts, executable_acceptance, lifecycle, trellis_bridge
 from hellodev.application import ProjectClient
 from hellodev.cli import main
 from hellodev.project import ProjectError
@@ -188,6 +188,14 @@ class V209AcceptanceIntegrityTests(unittest.TestCase):
                     "approve": prepared["approval"],
                 },
             )
+            proposal = executable_acceptance.propose(
+                root,
+                "invariant",
+                "tests/test_closure.py",
+                "python -m unittest discover",
+                "Managed closure remains atomic and cannot be bypassed",
+            )
+            executable_acceptance.review(root, proposal["proposal"]["id"], "approve")
             client.do("work")
             (root / "closure.py").write_text("CLOSURE_INTEGRITY = True\n", encoding="utf-8")
             required = client.next()["action"]

@@ -133,6 +133,10 @@ class ProjectPaths:
         return self.state_dir / "transactions.json"
 
     @property
+    def closure_transactions_file(self) -> Path:
+        return self.state_dir / "closure-transactions.json"
+
+    @property
     def evolution_policy_file(self) -> Path:
         return self.state_dir / "evolution-policy.json"
 

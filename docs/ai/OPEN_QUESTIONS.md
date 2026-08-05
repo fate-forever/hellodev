@@ -1,7 +1,50 @@
 # HelloDev Core open questions
 
-Last refreshed: 2026-07-31
-Scope: HelloDev 0.20.9 Acceptance Integrity and Atomic Closure
+Last refreshed: 2026-08-04
+Scope: HelloDev 0.21.3 project-discoverable Agent Skill
+
+## 0.21.3 decisions and open boundaries
+
+- [Resolved] One concise bundled Skill serves Codex, Cursor and Antigravity; host-specific onboarding selects only the project-local discovery path.
+- [Resolved] Skill ownership is hash-tracked and conservative: unchanged managed content upgrades, while user edits, missing files, unknown ownership and unsafe paths fail closed before project mutation.
+- [Resolved] Recovery detail is progressively disclosed from one reference after the same reason repeats; ordinary prompts remain short.
+- [Resolved] The Skill is cognition and guidance only. Core acceptance, verification, approval, closure and independent Trellis/Nocturne authority remain mandatory.
+- [Open, host behavior] Automatic Skill discovery and reload timing are host capabilities. HelloDev can install valid project files but cannot prove a host loaded them in the current conversation.
+- [Open, portability] The bundled metadata follows the current Agent Skill conventions used by these hosts; future host schema changes may require an adapter update.
+- [Open, evaluation] 0.21.3 has mechanism, package and compatibility evidence but no new counterbalanced Fresh-Agent A/B, so it makes no speed or token claim.
+- [Open, tooling] The upstream `quick_validate.py` requires PyYAML. When that dependency is unavailable, product tests cover the same bounded frontmatter/resource invariants, but the official validator result remains unavailable rather than silently installing a dependency.
+
+## 0.21.2 decisions and open boundaries
+
+- [Resolved] Finish checks lifecycle `checking` before approval or Trellis mutation, eliminating the known native-first partial-commit path.
+- [Resolved] Closure transactions persist enough identifiers and digests to resume a known completion without replaying the external write.
+- [Resolved] Legacy adoption fails closed unless one completed task operation and one successful task-complete receipt are unambiguous.
+- [Resolved] Mutable Trellis task/gate state no longer invalidates code verification; arbitrary project/source changes still do.
+- [Resolved] Agent guidance is progressive and bounded: confirmation, repair, then diagnostics and user escalation after the same reason repeats.
+- [Open, legacy ambiguity] Old projects with multiple unbound completion receipts require manual audit rather than automatic adoption.
+- [Open, evaluation] 0.21.2 has mechanism and compatibility evidence but requires a new counterbalanced Fresh-Agent A/B before any speed or token claim.
+
+## 0.21.1 decisions and open boundaries
+
+- [Resolved] Gate planning reads only an integrity-current exact requirements source and reuses manifest-first host commands. It is not verification evidence.
+- [Resolved] Response chaining preserves an exact approval resume command and otherwise emits one read-only routing action. It never executes the action.
+- [Resolved] Trellis preflight is local, bounded and path-safe; ready planning artifacts do not imply native validation or project quality success.
+- [Resolved] Only an isolated project `CONTEXT.md` change auto-refreshes capability state. Every authority, workflow, config, component/runtime and tool change requires explicit review.
+- [Resolved] Operation duration is local monotonic and non-persistent; it cannot be combined with model or host time without an external trajectory clock.
+- [Open, semantics] Criterion extraction and layer mapping are deterministic lexical projections. They cannot prove that every requirement has an adequate executable assertion.
+- [Open, calibration] The complex-Trellis threshold uses at least five bound requirement lines and needs cross-project calibration.
+- [Open, evaluation] 0.21.1 requires sequential counterbalanced Fresh-Agent A/B runs before any overall speed or token claim.
+
+## 0.21.0 decisions and open boundaries
+
+- [Resolved] Escalation is triggered only from persisted identity and failure facts; it does not ask a model to score its own confidence.
+- [Resolved] A second unchanged retry or repeated invalid finish attempt requires a hash-only diagnostic summary. Changing the repository snapshot resets the active escalation naturally.
+- [Resolved] Exact requirements-file tasks require a reviewed executable-acceptance proposal before implementation; summary-only small tasks remain compatible.
+- [Resolved] Proposal approval does not write a test, run a command or satisfy host verification.
+- [Open, review authority] Review is currently a local explicit CLI decision, not a signed human identity or remote policy receipt.
+- [Open, semantics] HelloDev binds proposal bytes and identities but cannot prove that a proposed test completely expresses free-form requirements.
+- [Open, calibration] The two-signal threshold needs repeated cross-project trajectory evaluation; 0.21.0 makes no wall-clock or token claim.
+- [Open, privacy] Proposal summaries are persisted to support review; diagnostic cause and strategy are persisted only as SHA-256 digests.
 
 ## 0.20.9 decisions and open boundaries
 

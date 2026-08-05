@@ -11,6 +11,7 @@ import hashlib
 import json
 import os
 import sys
+import time
 from dataclasses import dataclass, replace
 from pathlib import Path
 from typing import Any, Literal, Mapping, TypedDict, cast
@@ -18,16 +19,20 @@ from typing import Any, Literal, Mapping, TypedDict, cast
 from . import __version__
 from . import (
     acceptance,
+    acceptance_planning,
     approval,
     briefs,
     capabilities,
     changesets,
+    closure_transactions,
     components,
     context_runtime,
     context_policy,
     contracts,
+    dynamic_escalation,
     efficiency_cycles,
     experience,
+    executable_acceptance,
     facade,
     gates,
     knowledge_flows,
@@ -35,10 +40,12 @@ from . import (
     profiles,
     receipts,
     repository_tools,
+    response_chain,
     resume,
     routing,
     sagas,
     trellis_execution,
+    trellis_preflight,
     usage_collector,
     verification,
     task_alignment,
@@ -241,9 +248,10 @@ def _do_request(intent: str, arguments: Mapping[str, Any] | None) -> _DoRequest:
             return _DoRequest(do_intent=intent, **values)
         session = values.get("session")
         if session is None:
-            if values.get("level", "").upper() not in {"T0", "T1", "T2"} or not values.get("command"):
+            level = values.get("level")
+            if not isinstance(level, str) or level.upper() not in {"T0", "T1", "T2"} or not values.get("command"):
                 raise ProjectError("verification planning requires level and command")
-            values["level"] = values["level"].upper()
+            values["level"] = level.upper()
             if values.get("scope") not in {None, "auto", "code", "docs", "project"}:
                 raise ProjectError("verification scope must be auto, code, docs, or project")
         elif any(values.get(name) is not None for name in ("level", "command", "scope", "snapshot")) or values.get("current_snapshot"):
@@ -359,6 +367,7 @@ def _status(root: Path) -> dict[str, Any]:
                 "changeSet": change_set,
                 "verification": verification.summary(root),
                 "acceptance": acceptance.evidence(root),
+                "dynamicEscalation": dynamic_escalation.status(root),
                 "trellisExecution": trellis_execution.status(
                     root, project_mode=project_mode, change_set=change_set
                 ),
@@ -455,6 +464,9 @@ def _blockers(state: dict[str, Any]) -> list[str]:
         for item in guided.get("blockers", [])
         if isinstance(item, str)
     )
+    executable = acceptance_state.get("executableAcceptance") or {}
+    if executable.get("required") and not executable.get("satisfied"):
+        blockers.append(f"executable acceptance: {executable.get('state', 'required')}")
     return blockers
 
 
@@ -595,6 +607,10 @@ def _daily_open(root: Path) -> dict[str, Any]:
             "declared": acceptance_declared,
             "workItemBound": work_item_bound,
             "closureEligible": work_item_bound and acceptance_declared and acceptance_state["satisfied"],
+            "executable": {
+                key: acceptance_state["executableAcceptance"][key]
+                for key in ("state", "required", "satisfied")
+            },
         },
         "next": next_projection,
         "approval": approval.status(root),
@@ -1483,6 +1499,24 @@ def _require_trellis_completion_integrity(
     }
 
 
+def _record_verification_escalation(root: Path, result: dict[str, Any]) -> None:
+    """Project persisted host assertions into the deterministic escalation ledger."""
+
+    entries = result.get("results") if isinstance(result.get("results"), list) else [result]
+    for entry in entries:
+        record_result = entry if isinstance(entry, dict) else {}
+        record = record_result.get("record")
+        if record_result.get("state") != "recorded" or not isinstance(record, dict):
+            continue
+        event = "verification-succeeded" if record.get("outcome") == "succeeded" else "verification-failed"
+        dynamic_escalation.record(
+            root,
+            event,
+            record["commandSha256"],
+            "host-verification-succeeded" if event == "verification-succeeded" else "host-verification-failed",
+        )
+
+
 def _run_do(root: Path, request: _DoRequest) -> dict[str, Any]:
     intent = request.do_intent
     if intent == "begin":
@@ -1503,19 +1537,127 @@ def _run_do(root: Path, request: _DoRequest) -> dict[str, Any]:
                 root, project_mode=value["projectMode"], change_set=value["changeSet"]
             )
             value["closurePlan"] = _closure_plan(root)
+            value["acceptanceGatePlan"] = acceptance_planning.build(root)
+            value["trellisPreflight"] = trellis_preflight.status(root)
         return value
     if intent in {"plan", "work", "check", "finish"}:
+        if intent == "finish" and lifecycle.status(root)["phase"] == "finished":
+            current_pointer = contracts.current_work_item(root)
+            orphaned_closure = closure_transactions.current(root)
+            if (
+                current_pointer is None
+                and orphaned_closure is not None
+                and orphaned_closure["state"] in {"native-completed", "lifecycle-finished"}
+            ):
+                if orphaned_closure["state"] == "native-completed":
+                    orphaned_closure = closure_transactions.mark_lifecycle_finished(
+                        root, orphaned_closure["id"]
+                    )
+                recovered_work = contracts.refresh_work_item(root, orphaned_closure["workItemId"])
+                if (
+                    recovered_work["backend"] != "trellis"
+                    or recovered_work["nativeRef"] != orphaned_closure["task"]
+                    or recovered_work["linkedPhase"] != "finished"
+                ):
+                    raise ProjectError("closure recovery failed: orphaned WorkItem binding is inconsistent")
+                orphaned_closure = closure_transactions.commit(root, orphaned_closure["id"])
+                return {
+                    "schemaVersion": 1,
+                    "intent": "finish",
+                    "route": "closure.reconcile",
+                    "backend": "hellodev-local",
+                    "risk": "local-write",
+                    "state": "recovered-finished",
+                    "reasonCode": "closure-local-commit-recovered",
+                    "executionPerformed": True,
+                    "lifecycle": lifecycle.status(root),
+                    "workItem": recovered_work,
+                    "closureTransaction": orphaned_closure,
+                    "next": routing.next_decision(root),
+                }
         _require_daily_binding(root, intent, acceptance_required=intent in {"work", "check", "finish"})
+        if intent == "finish":
+            phase = lifecycle.status(root)["phase"]
+            current_for_recovery = contracts.current_work_item(root)
+            closure = (
+                closure_transactions.current(root, current_for_recovery)
+                if current_for_recovery is not None and current_for_recovery.get("backend") == "trellis"
+                else None
+            )
+            if phase == "finished" and closure is not None and closure["state"] in {"native-completed", "lifecycle-finished"}:
+                if closure["state"] == "native-completed":
+                    closure = closure_transactions.mark_lifecycle_finished(root, closure["id"])
+                recovered_work = contracts.refresh_work_item(root, current_for_recovery["id"])
+                if recovered_work["linkedPhase"] != "finished":
+                    raise ProjectError("closure recovery failed: WorkItem did not reach finished")
+                contracts.set_current_work_item(root, None)
+                closure = closure_transactions.commit(root, closure["id"])
+                return {
+                    "schemaVersion": 1,
+                    "intent": "finish",
+                    "route": "closure.reconcile",
+                    "backend": "hellodev-local",
+                    "risk": "local-write",
+                    "state": "recovered-finished",
+                    "reasonCode": "closure-local-commit-recovered",
+                    "executionPerformed": True,
+                    "lifecycle": lifecycle.status(root),
+                    "workItem": recovered_work,
+                    "closureTransaction": closure,
+                    "next": routing.next_decision(root),
+                }
+            if phase != "checking":
+                early_gate = gates.finish_decision(root)
+                if (
+                    gates.policy_show(root)["finishPolicy"] == "require-current-gate"
+                    and not early_gate["allowed"]
+                ):
+                    dynamic_escalation.record_finish_blocked(root, "finish-precondition-blocked")
+                    raise ProjectError(
+                        f"finish blocked: {early_gate['reason']} Next: {early_gate['nextCommand']}"
+                    )
+                dynamic_escalation.record_finish_blocked(root, "finish-requires-checking-phase")
+                next_decision = routing.next_decision(root)
+                escalated = next_decision.get("reasonCode") in {
+                    "dynamic-escalation-diagnostic-required",
+                    "dynamic-escalation-strategy-required",
+                }
+                return {
+                    "schemaVersion": 1,
+                    "intent": "finish",
+                    "route": "closure.precondition",
+                    "backend": "hellodev-local",
+                    "risk": "read",
+                    "state": "recovery-required" if escalated else "check-required",
+                    "reasonCode": (
+                        next_decision["reasonCode"] if escalated else "finish-requires-checking-phase"
+                    ),
+                    "reason": "Managed finish requires lifecycle checking before approval or Trellis mutation.",
+                    "executionPerformed": False,
+                    "approvalPrepared": False,
+                    "trellisMutationPerformed": False,
+                    "closureRecovery": closure_transactions.status(root),
+                    "next": next_decision,
+                }
         decision = routing.decide(root, intent, {"note": request.note})
-        if intent in {"check", "finish"}:
-            acceptance.require_satisfied(root, intent)
-        gate_decision = gates.finish_decision(root) if intent == "finish" else None
-        if gate_decision is not None and not gate_decision["allowed"]:
-            raise ProjectError(f"finish blocked: {gate_decision['reason']} Next: {gate_decision['nextCommand']}")
+        try:
+            if intent in {"work", "check", "finish"}:
+                executable_acceptance.require_approved(root, intent)
+            if intent in {"check", "finish"}:
+                acceptance.require_satisfied(root, intent)
+            gate_decision = gates.finish_decision(root) if intent == "finish" else None
+            if gate_decision is not None and not gate_decision["allowed"]:
+                raise ProjectError(f"finish blocked: {gate_decision['reason']} Next: {gate_decision['nextCommand']}")
+        except ProjectError:
+            if intent == "finish":
+                dynamic_escalation.record_finish_blocked(root, "finish-precondition-blocked")
+            raise
         trellis_completion = None
         closure_integrity = None
+        closure_transaction = None
         current_before = contracts.current_work_item(root)
         if intent == "finish" and current_before is not None and current_before["backend"] == "trellis":
+            closure_transaction = closure_transactions.prepare(root, current_before)
             binding = task_alignment.binding(root, current_before["id"])
             if binding is None:
                 contract = acceptance.current(root)
@@ -1535,37 +1677,51 @@ def _run_do(root: Path, request: _DoRequest) -> dict[str, Any]:
                     }
             native_record = root / ".trellis" / "tasks" / current_before["nativeRef"] / "task.json"
             if native_record.is_file() and not native_record.is_symlink():
-                completion_decision = routing.decide(
-                    root,
-                    "task",
-                    {"operation": "complete", "task": current_before["nativeRef"]},
-                )
-                trellis_completion = _run_trellis(
-                    root,
-                    completion_decision,
-                    request.approve,
-                    request.timeout,
-                    ["do", "finish", "--timeout", str(request.timeout)],
-                )
+                trellis_completion = closure_transactions.completion(root, current_before)
+                if trellis_completion is None:
+                    completion_decision = routing.decide(
+                        root,
+                        "task",
+                        {"operation": "complete", "task": current_before["nativeRef"]},
+                    )
+                    trellis_completion = _run_trellis(
+                        root,
+                        completion_decision,
+                        request.approve,
+                        request.timeout,
+                        ["do", "finish", "--timeout", str(request.timeout)],
+                    )
                 if not trellis_completion.get("executionPerformed"):
-                    return {
-                        **decision,
-                        "state": "awaiting-confirmation",
-                        "executionPerformed": False,
-                        "trellisCompletion": trellis_completion,
-                        "authorization": trellis_completion.get("authorization"),
-                        "resumeCommand": trellis_completion.get("resumeCommand"),
-                        "next": trellis_completion.get("resumeCommand"),
-                    }
+                    if trellis_completion.get("recovered") is True:
+                        pass
+                    else:
+                        return {
+                            **decision,
+                            "state": "awaiting-confirmation",
+                            "executionPerformed": False,
+                            "trellisCompletion": trellis_completion,
+                            "closureTransaction": closure_transaction,
+                            "authorization": trellis_completion.get("authorization"),
+                            "resumeCommand": trellis_completion.get("resumeCommand"),
+                            "next": trellis_completion.get("resumeCommand"),
+                        }
                 completion_result = trellis_completion.get("result", {})
                 if not isinstance(completion_result, dict) or completion_result.get("exitCode") != 0:
                     return {
                         **decision,
                         "state": "trellis-completion-failed",
-                        "executionPerformed": True,
+                        "executionPerformed": bool(trellis_completion.get("executionPerformed")),
                         "trellisCompletion": trellis_completion,
+                        "closureTransaction": closure_transaction,
                         "next": command_line(root, "resume"),
                     }
+                if closure_transaction["state"] == "prepared":
+                    closure_transaction = closure_transactions.record_native_completion(
+                        root,
+                        closure_transaction["id"],
+                        trellis_completion,
+                        legacy_adopted=trellis_completion.get("recovered") is True,
+                    )
                 closure_integrity = _require_trellis_completion_integrity(
                     root, current_before, trellis_completion
                 )
@@ -1587,12 +1743,16 @@ def _run_do(root: Path, request: _DoRequest) -> dict[str, Any]:
             _managed_closure_verified=intent == "finish" and closure_integrity is not None,
         )
         current_work = contracts.current_work_item(root)
+        if closure_transaction is not None:
+            closure_transaction = closure_transactions.mark_lifecycle_finished(root, closure_transaction["id"])
         if current_work is not None:
             current_work = contracts.refresh_work_item(root, current_work["id"])
             if intent == "finish" and current_work["linkedPhase"] != "finished":
                 raise ProjectError("closure integrity failed: WorkItem did not reach finished")
         if intent == "finish":
             contracts.set_current_work_item(root, None)
+            if closure_transaction is not None:
+                closure_transaction = closure_transactions.commit(root, closure_transaction["id"])
         value: dict[str, Any] = {
             **decision,
             "executionPerformed": True,
@@ -1601,6 +1761,9 @@ def _run_do(root: Path, request: _DoRequest) -> dict[str, Any]:
             "next": routing.next_decision(root),
             "workItem": current_work,
         }
+        if intent == "work":
+            value["acceptanceGatePlan"] = acceptance_planning.build(root)
+            value["trellisPreflight"] = trellis_preflight.status(root)
         if intent in {"check", "finish"}:
             value["gate"] = gates.status(root)
             value["projectMode"] = workflow_projection.status(root)
@@ -1615,6 +1778,8 @@ def _run_do(root: Path, request: _DoRequest) -> dict[str, Any]:
             value["trellisCompletion"] = trellis_completion
         if closure_integrity is not None:
             value["closureIntegrity"] = closure_integrity
+        if closure_transaction is not None:
+            value["closureTransaction"] = closure_transaction
         if intent == "finish":
             value["rememberSuggestion"] = {
                 "state": "suggested-only",
@@ -1679,6 +1844,7 @@ def _run_do(root: Path, request: _DoRequest) -> dict[str, Any]:
                 request.duration_ms,
                 request.scope,
             )
+        _record_verification_escalation(root, result)
         return {
             **decision,
             "executionPerformed": False,
@@ -1808,9 +1974,37 @@ class ProjectClient:
             return rewrite_commands(value)
 
     def do(self, intent: DailyIntent | str, arguments: DoArguments | Mapping[str, Any] | None = None) -> dict[str, Any]:
+        started = time.perf_counter()
+        phase_before = lifecycle.status(self._root)["phase"] if project_initialized(self._root) else None
         with components.verification_session():
+            capability_refresh = None
+            if intent in {"plan", "work", "check", "finish", "validate"} and project_initialized(self._root):
+                capability_state = capabilities.status(self._root)
+                if capability_state["state"] == "stale":
+                    capability_refresh = capabilities.refresh_project_context(self._root)
+                    if capability_refresh["state"] == "fresh":
+                        current = contracts.current_work_item(self._root)
+                        if current is not None:
+                            contracts.refresh_work_item(self._root, current["id"])
+                    else:
+                        raise ProjectError(
+                            "capability drift requires explicit review; run hellodev capabilities refresh"
+                        )
             usage_sync = _deferred_usage_sync(self._root)
-            return rewrite_commands({**_run_do(self._root, _do_request(intent, arguments)), "usageSync": usage_sync})
+            value = {**_run_do(self._root, _do_request(intent, arguments)), "usageSync": usage_sync}
+            if capability_refresh is not None:
+                value["capabilityRefresh"] = capability_refresh
+            phase_after = lifecycle.status(self._root)["phase"] if project_initialized(self._root) else None
+            value["operationMetrics"] = {
+                "schemaVersion": 1,
+                "operation": f"do.{intent}",
+                "durationMs": round((time.perf_counter() - started) * 1000, 2),
+                "phaseBefore": phase_before,
+                "phaseAfter": phase_after,
+                "measurement": "local-monotonic",
+                "persisted": False,
+            }
+            return rewrite_commands(response_chain.attach(self._root, value))
 
 
 __all__ = ["DailyIntent", "DoArguments", "ProjectClient"]

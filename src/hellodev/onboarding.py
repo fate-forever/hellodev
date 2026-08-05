@@ -8,7 +8,7 @@ import tempfile
 from pathlib import Path
 from typing import Any, Literal
 
-from . import components, integrations
+from . import agent_skill, components, integrations
 from .adapters import trellis
 from .command_rendering import command_line
 from .project import (
@@ -55,6 +55,14 @@ FastCtx is optional and never replaces HelloDev's native Context Plane, Trellis
 workflow, Nocturne memory, or HelloDev resume. Ask before consuming an approval
 token or performing an external write, and report tests, gates, and remaining
 risks at the end.
+
+Use progressive recovery rather than guessing commands. On the first failure,
+execute only the returned `nextAction`. If interrupted, use `hellodev resume`.
+If the same `reasonCode` remains after two attempts, stop mutating state, run
+`hellodev --json next`, `hellodev --json resume`, and
+`hellodev --json status --verbose`, then show those bounded diagnostics to the
+user and ask for direction. Never retry `finish`, reuse an approval token, edit
+`.hellodev` JSON, or complete a Trellis task directly to bypass a blocker.
 """
 ANTIGRAVITY_RULE = """# HelloDev workspace workflow
 
@@ -87,6 +95,14 @@ or call `hellodev_context` with the task goal and `scope=code`. Known-file and
 small changes may use exact native reads instead of exhausting continuation
 pages. Ask before consuming an approval token or performing an external write,
 and report tests, gates, and remaining risks at the end.
+
+Use progressive recovery rather than guessing commands. On the first failure,
+execute only the returned `nextAction`. If interrupted, use `hellodev resume`.
+If the same `reasonCode` remains after two attempts, stop mutating state, run
+`hellodev --json next`, `hellodev --json resume`, and
+`hellodev --json status --verbose`, then show those bounded diagnostics to the
+user and ask for direction. Never retry `finish`, reuse an approval token, edit
+`.hellodev` JSON, or complete a Trellis task directly to bypass a blocker.
 """
 
 
@@ -308,6 +324,7 @@ def _onboard(
         if host == "codex"
         else None
     )
+    skill_plan = agent_skill.plan(selected, host)
     distribution = components.availability()
     if distribution["state"] == "invalid":
         raise ProjectError(f"HelloDev distribution is invalid: {distribution.get('reason', 'unknown reason')}")
@@ -361,6 +378,7 @@ def _onboard(
         if host == "codex"
         else {"host": "none", "changed": False, "reloadRequired": False}
     )
+    skill_result = agent_skill.install(skill_plan)
     if not host_result.get("manualMergeRequired"):
         configure_host(selected, host)
     if (selected / ".trellis").is_dir():
@@ -393,6 +411,7 @@ def _onboard(
         "trellis": trellis_result,
         "nocturne": memory,
         "host": host_result,
+        "skill": skill_result,
         "dailyPrompt": "用 HelloDev 完成这个任务：<任务>。验收：<标准>。持续推进到测试通过，需要授权时再问我。",
     }
 

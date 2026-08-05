@@ -28,6 +28,8 @@ from . import (
     contracts,
     dashboard,
     delegation,
+    dynamic_escalation,
+    executable_acceptance,
     gates,
     governance,
     host_bridge,
@@ -41,6 +43,7 @@ from . import (
     profiles,
     receipts,
     repository_tools,
+    response_chain,
     resume,
     routing,
     sagas,
@@ -485,6 +488,26 @@ def _parser(show_all: bool = False) -> argparse.ArgumentParser:
     add_recall_options(do_recall)
     do_remember = do_commands.add_parser("remember", help="run the evidence-gated remember intent")
     add_remember_options(do_remember)
+
+    acceptance_parser = commands.add_parser("acceptance", help="propose and review executable acceptance without executing it")
+    acceptance_commands = acceptance_parser.add_subparsers(dest="acceptance_command", required=True)
+    acceptance_commands.add_parser("status", help="show the current executable acceptance review state")
+    acceptance_propose = acceptance_commands.add_parser("propose", help="persist one reviewable test or invariant proposal")
+    acceptance_propose.add_argument("--mode", choices=("red", "characterization", "invariant"), required=True)
+    acceptance_propose.add_argument("--path", dest="acceptance_path", required=True)
+    acceptance_propose.add_argument("--command", dest="acceptance_command_line", required=True)
+    acceptance_propose.add_argument("--summary", required=True)
+    acceptance_review = acceptance_commands.add_parser("review", help="approve or reject one proposal without creating verification evidence")
+    acceptance_review.add_argument("proposal_id")
+    acceptance_review.add_argument("--decision", choices=("approve", "reject"), required=True)
+    acceptance_review.add_argument("--reason", default=None)
+
+    escalation_parser = commands.add_parser("escalation", help="inspect or satisfy deterministic repeated-failure escalation")
+    escalation_commands = escalation_parser.add_subparsers(dest="escalation_command", required=True)
+    escalation_commands.add_parser("status", help="show current deterministic escalation state")
+    escalation_diagnose = escalation_commands.add_parser("diagnose", help="record a hash-only diagnostic summary and replacement strategy")
+    escalation_diagnose.add_argument("--cause", required=True)
+    escalation_diagnose.add_argument("--strategy", required=True)
 
     trellis_parser = commands.add_parser("trellis", help="Trellis adapter")
     trellis_commands = trellis_parser.add_subparsers(dest="trellis_command", required=True)
@@ -1679,6 +1702,23 @@ def _main(argv: list[str] | None = None) -> int:
             value, heading = projection, "HelloDev resume"
         elif args.command == "do":
             value, heading = project_client.do(args.do_intent, _project_client_do_arguments(args)), "HelloDev intent"
+        elif args.command == "acceptance":
+            if args.acceptance_command == "status":
+                value, heading = executable_acceptance.status(root), "HelloDev executable acceptance"
+            elif args.acceptance_command == "propose":
+                value, heading = executable_acceptance.propose(
+                    root, args.mode, args.acceptance_path, args.acceptance_command_line, args.summary
+                ), "HelloDev executable acceptance proposed"
+            else:
+                value, heading = executable_acceptance.review(
+                    root, args.proposal_id, args.decision, args.reason
+                ), "HelloDev executable acceptance reviewed"
+            value = response_chain.attach(root, value)
+        elif args.command == "escalation":
+            if args.escalation_command == "status":
+                value, heading = dynamic_escalation.status(root), "HelloDev dynamic escalation"
+            else:
+                value, heading = dynamic_escalation.diagnose(root, args.cause, args.strategy), "HelloDev dynamic escalation diagnosed"
         elif args.command == "recall":
             value, heading = _run_recall(root, args, ["recall"]), "HelloDev recall"
         elif args.command == "remember":

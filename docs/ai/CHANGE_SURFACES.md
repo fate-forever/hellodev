@@ -1,7 +1,43 @@
 # HelloDev Core change surfaces
 
-Last refreshed: 2026-07-31
-Scope: HelloDev 0.20.9 Acceptance Integrity and Atomic Closure
+Last refreshed: 2026-08-04
+Scope: HelloDev 0.21.3 project-discoverable Agent Skill
+
+## 0.21.3 change surface
+
+| Change goal | Primary source | Required tests | Preserved boundary |
+|---|---|---|---|
+| Change Agent workflow guidance | `skill_bundle/hellodev/SKILL.md`, `references/recovery.md`, host rule/MCP instructions | `test_v213_project_skill.py` plus onboarding/MCP guidance regressions | Skill guidance never executes, authorizes, edits `.hellodev` or replaces Core gates. |
+| Change project Skill installation | `agent_skill.py`, `onboarding.py` | destination, idempotence, managed-upgrade, user-edit/conflict and unsafe-path tests | Project-local only; preflight before mutation; no global/user-config write. |
+| Change packaged Skill resources | `pyproject.toml`, Skill bundle, isolated-wheel smoke | package-data inspection and installed-wheel onboarding | One concise Skill and one progressive reference; files remain bounded. |
+| Change version/public contract | package metadata, component lock/schema, Dashboard, docs/tests | OSS, distribution, Dashboard and release gates | Six MCP tools, six-field `open`, host execution and component authority remain unchanged. |
+
+## 0.21.2 change surface
+
+| Change goal | Primary source | Required tests | Preserved boundary |
+|---|---|---|---|
+| Make finish recoverable | `closure_transactions.py`, `application.py`, `resume.py` | `test_v212_recoverable_closure.py` plus v0.20.8/v0.20.9 closure tests | Checking precedes mutation; native authority and explicit approval remain unchanged. |
+| Preserve evidence across governance-only drift | `changesets.py`, `acceptance.py` | v0.21.2 snapshot/context regressions plus verification compatibility | Only Trellis task/gate state is excluded; source drift still invalidates evidence. |
+| Guide a stuck Agent progressively | `response_chain.py`, `onboarding.py`, `mcp_gateway.py` | v0.21.2 and onboarding/MCP contract tests | Guidance does not execute, authorize, edit state or invent a bypass. |
+
+## 0.21.1 change surface
+
+| Change goal | Primary source | Required tests | Preserved boundary |
+|---|---|---|---|
+| Project exact requirements into progressive gates | `acceptance.py`, `acceptance_planning.py`, `trellis_execution.py`, executable-acceptance projection | `test_v211_agent_path_efficiency.py`, v0.21.0/v0.20.9 acceptance regressions | Lexical bounded plan only; no semantic completeness claim, host execution or verification evidence. |
+| Normalize one next response action | `response_chain.py`, `application.py`, `cli.py` | v0.21.1 plus routing/resume/approval regressions | Prefer exact resume authorization; never execute or consume a token. |
+| Preflight Trellis planning context | `trellis_preflight.py`, `application.py` | missing/ready/malformed/traversal manifest regressions | Read only the bound task; never replace native validation or quality gates. |
+| Auto-refresh isolated project context | `capabilities.py`, `application.py`, WorkItem fingerprint refresh | context-only and AGENTS-drift regressions plus capability cache tests | Config, Agent, workflow, scripts, component/runtime and repository-tool drift fail closed. |
+| Measure one Core operation | `application.py` | v0.21.1 response contract and compatibility tests | Local monotonic/non-persistent only; not Agent wall-clock, model time or token usage. |
+| Change version/public contract | package metadata, component lock/schema, Dashboard, docs | OSS, distribution, Dashboard and release gates | Six MCP tools, six-field `open`, host-owned execution and authority separation remain unchanged. |
+
+## 0.21.0 change surface
+
+| Change goal | Primary source | Required tests | Preserved boundary |
+|---|---|---|---|
+| Review executable acceptance before exact-requirements work | `executable_acceptance.py`, `application.py`, `resume.py`, `cli.py` | `test_v210_dynamic_executable_acceptance.py` plus v0.20.9 integrity tests | No test-file write, host execution or verification evidence from review. Summary-only tasks retain the fast path. |
+| Escalate repeated unchanged failure | `dynamic_escalation.py`, `verification.py`, `application.py`, `resume.py` | v0.21.0 unchanged-retry, invalid-finish, diagnosis and snapshot-reset regressions | Deterministic signals only; no model confidence, automatic subagent or context-budget halving. |
+| Change version/public contract | package metadata, component lock/schema, Dashboard, docs | OSS, distribution, Dashboard and release gates | Six MCP tools, host-asserted verification and independent component authority remain unchanged. |
 
 ## 0.20.9 change surface
 

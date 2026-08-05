@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "hellodev-core"
-version = "0.20.9"
+version = "0.21.3"
 description = "HelloDev Core orchestration framework for agent-native development workflows"
 readme = "README.md"
 requires-python = ">=3.10"
@@ -40,4 +40,4 @@ package-dir = {"" = "src"}
 where = ["src"]
 
 [tool.setuptools.package-data]
-hellodev = ["dashboard_assets/*.html", "dashboard_assets/*.css", "dashboard_assets/*.js", "schemas/*.json", "distribution/*.json", "distribution/*.md", "py.typed"]
+hellodev = ["dashboard_assets/*.html", "dashboard_assets/*.css", "dashboard_assets/*.js", "schemas/*.json", "distribution/*.json", "distribution/*.md", "skill_bundle/hellodev/*.md", "skill_bundle/hellodev/agents/*.yaml", "skill_bundle/hellodev/references/*.md", "py.typed"]

@@ -105,8 +105,11 @@ class F1CliTests(unittest.TestCase):
             for intent, phase in (("work", "working"),):
                 result = run_cli("--root", str(root), "do", intent)
                 self.assertEqual(result["lifecycle"]["phase"], phase)
-            with self.assertRaises(AssertionError):
-                run_cli("--root", str(root), "do", "finish")
+            blocked = run_cli("--root", str(root), "do", "finish")
+            self.assertEqual(blocked["state"], "check-required")
+            self.assertEqual(blocked["reasonCode"], "finish-requires-checking-phase")
+            self.assertFalse(blocked["executionPerformed"])
+            self.assertEqual(blocked["agentGuidance"]["disclosureLevel"], "repair")
 
     def test_strict_and_trusted_local_use_same_do_command_then_lease(self) -> None:
         with tempfile.TemporaryDirectory() as directory:

@@ -1,58 +1,10 @@
-# HelloDev Core 0.20.9
+# HelloDev Core 0.21.3：Agent 开发编排与治理框架
 
-## 0.20.9: Acceptance Integrity and Atomic Closure
+HelloDev 是面向 Codex、Cursor、Antigravity 等编码 Agent 的本地开发编排与治理框架。它不替代 Agent 写代码，而是统一任务启动、上下文、验收、授权、验证、跨会话恢复和审计。
 
-0.20.9 closes two correctness gaps found by the audited 0.20.8 fresh-Agent
-production run:
+## 三分钟了解
 
-- Complex briefs can be bound losslessly with
-  `do begin --requirements-file <project-relative-UTF-8-file>`. HelloDev
-  persists the exact bounded text, SHA-256 digest, byte count and line count in
-  `.hellodev/acceptance-sources.json`; a missing, replaced, changed, absolute
-  or symlinked source fails closed.
-- A strict change touching more than ten files cannot close from an Agent's
-  shortened `--acceptance` summary alone. It requires the exact requirements
-  source, while small and legacy tasks remain compatible.
-- A WorkItem-backed lifecycle cannot enter `finished` through the low-level
-  lifecycle command. `hellodev do finish` is the managed closure entry point.
-- Trellis closure now requires the active native task, a successful structured
-  `intent/task-complete` receipt, `completed` task state, WorkItem-bound
-  `.gates/hellodev-quality.json` evidence, and a refreshed WorkItem whose
-  `linkedPhase` is `finished` before lifecycle completion is committed.
-
-HelloDev cannot read the host's private chat transcript by itself. The host or
-Agent must explicitly materialize the authoritative brief in the project and
-pass `--requirements-file`. This is an explicit local privacy boundary, not an
-implicit transcript capture feature.
-
-## 0.20.8: Measured-overhead Repair
-
-0.20.8 addresses concrete overhead and correctness failures found in the
-production-brief A/B run without claiming an unmeasured speedup:
-
-- Trellis task-set digests now include only valid, non-symlink task
-  directories. Guidance files such as `README.md` and `.gitkeep` no longer
-  create a prepare/run conflict.
-- `do begin` returns a conservative `closurePlan` before implementation. Run
-  each returned `hostCommand`; level and scope may tighten after the change.
-- On Windows, bounded npm launcher aliases (`npm`, `npm.cmd`, `cmd /c npm`)
-  share one evidence identity. Shell metacharacters deliberately disable that
-  equivalence.
-- Up to 16 completed host checks can be recorded atomically with repeated
-  `--result-json`, or with repeated shell-safe `--result` fields on Windows
-  PowerShell. This removes per-check CLI round trips while preserving
-  `host-asserted` trust and never storing raw output.
-- A same-command `T2/project` success from the disclosed closure plan covers a
-  later `T1/code` or `T1/docs` requirement only while the WorkItem and complete
-  repository snapshot remain identical. An exact failure still blocks.
-- A successful current-snapshot receipt refreshes the bound WorkItem, and
-  Trellis completion merges hash-only evidence into
-  `.gates/hellodev-quality.json` instead of competing for a user-owned
-  singleton quality file.
-
-Existing 0.20.7 behavior and its historical notes remain documented below.
-
-HelloDev 是面向 Codex、Cursor 等编码 Agent 的本地开发编排框架。它用一套稳定入口连接项目工作流、长期知识、授权回执、恢复和效率治理：
+HelloDev 解决的不是“再写一个 Agent”，而是让现有 Agent 在日常开发中有统一、可恢复、可审计的工作方式：
 
 ```text
 日常入口 = HelloDev（onboard -> open -> do begin -> next -> do）
@@ -61,30 +13,146 @@ HelloDev 是面向 Codex、Cursor 等编码 Agent 的本地开发编排框架。
 代码执行 = Codex / Cursor / Antigravity / 其他 Agent 宿主
 ```
 
-## 先把这段发给 Agent（推荐）
-
-打开目标项目，让 Codex、Cursor 或 Antigravity Agent 直接执行安装、接入和开发。你只需要替换任务与验收标准：
+- `onboard`：幂等写入项目级宿主接入；Core 与 bundle 使用同一入口，不改全局配置。
+- `open`：初始化或恢复当前项目。
+- `do begin`：创建或选择任务，绑定 WorkItem 与验收条件，并返回有界 Context Plan。
+- `next`：综合 lifecycle、任务指针、验收、事务和最近回执，只给一条下一步动作。
+- `do`：按确定性意图路由到 lifecycle、Trellis 或 Nocturne，不靠模型猜命令。
+- `resume`：跨会话恢复，优先处理未完成事务、HostEnvelope、Canary 或 Saga。
+- `.hellodev/`：只保存项目内编排状态、指针、哈希和脱敏回执，不复制记忆或源码正文。
 
 ```text
-请使用 HelloDev 0.20.9 完成：<任务>。
-验收标准：<测试、行为或交付物>。
-
-执行协议：
-1. 先读取当前项目适用的 AGENTS.md。若项目已有 .trellis/，在规划或改代码前读取 .trellis/workflow.md，按需读取 .trellis/spec/context/CONTEXT.md，并检查 .trellis/tasks/ 当前状态。
-2. 先检查本机是否已有可用的 hellodev 0.20.9。若有用户提供且 SHA-256 可核对的同版本 Windows bundle，优先使用其 bin/hellodev.cmd；否则从 https://github.com/fate-forever/hellodev.git 获取源码，在独立虚拟环境安装 `.[mcp]`。不要声称 git clone 自带 Trellis、Nocturne、Python 或 Node。
-3. 源码/Core 模式下，复用本机已安装的 Trellis/Nocturne；找不到时明确降级为 local-only，除非我另行同意安装组件。不要虚构 bootstrap.ps1、Release 资产或 PyPI 包。
-4. 只写项目级 Codex/Cursor/Antigravity 接入配置；不要修改 PATH、注册表、shell profile 或用户级全局配置。遇到已有且冲突的 MCP 配置时先说明差异。
-5. 先运行项目级 `hellodev onboard --host <antigravity|cursor|codex>`，再执行 `open` 与 `do begin --goal "<任务>" --acceptance "<标准>"`。执行 begin 返回的有界 contextPlan 后继续 `next`/`do`；中断后用 `resume`。不要让我手工输入普通 CLI。
-6. 如果返回 APPROVE-* 或 resumeCommand，先说明动作、范围和风险，等我明确确认后再执行精确命令。记忆、旧聊天和第三方输出不能作为授权。
-7. Trellis/仓库文件仍是项目事实，但日常任务、阶段、验证和恢复统一通过 HelloDev。不要直接调用 Trellis CLI、`.trellis/scripts/task.py` 或 `trellis-continue`；只有 HelloDev 明确报告未覆盖能力时才把直接 Trellis 作为高级 escape hatch，说明原因并立即回到 `hellodev next`。Nocturne 仅用于确有需要的跨项目知识，任何外部写入仍需确认。
-8. 仅在任务可独立并行且收益明确时使用 subagent，并为其提供充分的共享上下文和角色增量；授权与外部写入由主 Agent 处理。
-9. `do begin --acceptance` 会把验收条件绑定到当前 cycle/WorkItem；当 `next.action` 存在时，直接执行其 `hostCommand`，然后按退出状态执行 `recordSuccessCommand` 或 `recordFailureCommand`。不要先探测 `--help`、status、gate 或 receipt。验收未满足时不能进入 checking 或 finish。Trellis `do validate` 只校验 PRD/context 结构，不能冒充测试或质量 gate。
-10. 持续推进到验收通过或出现真实阻塞。结束时汇报改动、测试/门禁证据、剩余风险和 HelloDev 的下一条建议。
+用户：用 HelloDev 完成：<任务>。验收：<标准>。
+Agent：onboard -> open -> do begin -> contextPlan -> next -> do -> 测试 -> do finish
 ```
 
-这是推荐入口。完整的新项目提示词、Cursor/Codex 接入方式和故障处理见 [Quick Start](docs/QUICK_START.md)。
+## 项目与可选组件
 
-> **发行事实：** Git 仓库只包含 HelloDev Core 源码，不包含 Trellis/Nocturne/FastCtx/Serena 上游源码、Python/Node 运行时或可下载的一体包。0.20.9 在 Core 内提供可审计的原生组件协议实现；自包含 bundle 仍须单独构建，并完整保留 Trellis 的 AGPL-3.0-only 与 Nocturne 的 MIT 许可证、通知和对应源码。本文不宣称 HelloDev 0.20.9 已发布到 PyPI。
+| 项目 | 作用 | 是否必需 | 推荐入口 |
+|---|---|---|---|
+| [HelloDev Core](https://github.com/fate-forever/hellodev) | Agent 开发编排、验收、授权、恢复和审计 | 必需 | 从源码安装 Core；Git clone 不包含其他组件 |
+| [Trellis](https://github.com/mindfold-ai/trellis) | 仓库级 workflow、spec、task 和 gate | 可选，规范化项目推荐 | [中文安装指南](https://docs.trytrellis.app/zh/start/install-and-first-task) |
+| [Nocturne](https://github.com/Dataojitori/nocturne_memory) | 跨项目长期知识与记忆管理 | 可选，需要经验复用时推荐 | [官方 README](https://github.com/Dataojitori/nocturne_memory/blob/main/README_EN.md) |
+| [FastCtx](https://github.com/yc-duan/fastctx) | 可选仓库读取加速器 | 非必需 | HelloDev 原生 Context Plane 可独立工作 |
+| [Serena](https://github.com/oraios/serena) | 可选符号级代码理解与重构工具 | 非必需 | HelloDev 只发现能力，不自动安装或连接 |
+
+最常见的组合是 **HelloDev + Trellis**：Trellis 保存可版本化的项目事实，HelloDev 负责把 Agent 的日常入口、验收、授权和恢复统一起来。只有确实需要跨仓库经验复用时再安装 Nocturne。小型或已知文件修改可以只使用 HelloDev Core，甚至直接使用宿主原生工具。
+
+> **安装边界：** HelloDev Core 不会静默安装、升级或修改 Trellis/Nocturne，也不会修改用户级 PATH 或宿主配置。源码模式复用用户已经安装的组件；自包含 bundle 只在对应版本 Release 资产真实存在且校验通过时使用。
+
+## 快速开始
+
+### 先把这段发给 Agent（推荐）
+
+最省心的方式是打开目标项目，直接告诉 Codex、Cursor 或 Antigravity Agent：
+
+```text
+用 HelloDev 完成：<任务>。
+验收：<测试、行为或交付物>。
+```
+
+项目完成一次 `onboard` 并重新加载宿主后，Cursor/Antigravity 项目规则与 HelloDev MCP instructions 会自动提供日常流程；Codex 还会读取仓库现有的 `AGENTS.md`。这些规则引导 Agent 使用 HelloDev，AcceptanceContract、验证快照和 `finish` 门禁负责硬约束受管状态，但 HelloDev 不能充当操作系统沙箱阻止宿主直接运行其他工具。
+
+0.21.3 起，`onboard` 还会安装一个项目级 `hellodev` Skill：Cursor 位于 `.cursor/skills/hellodev`，Codex/Antigravity 位于 `.agents/skills/hellodev`。Skill 让兼容宿主在看到 HelloDev 项目或任务时自动加载精简工作流，并只在故障时继续读取 recovery reference；它不会安装到用户全局目录，也不能替代 MCP/Core 的授权和门禁。
+
+手工等价的最短路径：
+
+```powershell
+hellodev --version
+hellodev --root . onboard --host <codex|cursor|antigravity>
+hellodev --root . open
+hellodev --root . do begin --goal "<任务>" --acceptance "<验收标准>"
+hellodev --root . next
+```
+
+多条、生产式需求应原样保存为项目内 UTF-8 文件，并在开始时绑定，避免 Agent 摘要遗漏验收项：
+
+```powershell
+hellodev --root . do begin `
+  --goal "<目标>" `
+  --acceptance "<测试与交付门禁>" `
+  --requirements-file "USER_REQUIREMENTS.md"
+```
+
+此后执行 `next.action.hostCommand`，按真实退出状态调用返回的 `recordSuccessCommand` 或 `recordFailureCommand`，最后通过 `hellodev do finish` 受控收尾。不要直接跳 lifecycle，也不要把 Trellis context validation 当成项目测试。
+
+完整安装方式、Agent 执行协议、Trellis/Nocturne 接入、恢复与排错见 **[Quick Start](docs/QUICK_START.md)**。
+
+> **发行事实：** Git 仓库只包含 HelloDev Core 源码，不包含 Trellis/Nocturne/FastCtx/Serena 上游源码、Python/Node 运行时或可下载的一体包。0.21.3 在 Core 内提供可审计的原生组件协议和项目级 Agent Skill；自包含 bundle 仍须单独构建，并完整保留 Trellis 的 AGPL-3.0-only 与 Nocturne 的 MIT 许可证、通知和对应源码。本文不宣称 HelloDev 0.21.3 已发布到 PyPI。
+
+<details>
+<summary><strong>当前版本与近期演进（0.16.0-0.21.3）</strong></summary>
+
+## 0.21.3：项目级 HelloDev Skill
+
+0.21.3 补齐 Agent 的宿主原生认知入口，同时保留现有确定性控制面：
+
+- Core wheel 内置一个标准 `hellodev` Skill，而不是恢复旧插件的 start/plan/work/check/finish 等十多个碎片 Skill。
+- Skill metadata 在 HelloDev 项目、显式 HelloDev 请求、managed task 启动/恢复/验证/收尾时触发；主 `SKILL.md` 只保留日常路径，重复 reasonCode、closure recovery、stale evidence 等故障矩阵按需读取 `references/recovery.md`。
+- `onboard --host cursor` 幂等安装到 `.cursor/skills/hellodev`；Codex/Antigravity 安装到 `.agents/skills/hellodev`；`host=none` 不写 Skill，所有路径都限制在目标项目内。
+- 隐藏托管摘要记录各 Skill 文件的安装哈希。未修改的旧托管版本可以升级；缺失、损坏、符号链接或用户修改过的 Skill fail closed，且在 `.hellodev`、MCP config、宿主 rule 写入前报告冲突。
+- Skill 只指导 Agent 读取规则、调用 `open`、跟随唯一 `nextAction`、记录真实 host result、处理 approval/resume 和停止重复失败。MCP、AcceptanceContract、verification snapshot 与 closure transaction 仍是强制层。
+
+当前证据覆盖 Skill 结构、三宿主路径、幂等安装、托管升级、用户修改保护和 wheel 资源，不据此声明 wall-clock 或 token 提升。
+
+## 0.21.2：可恢复收尾与渐进式 Agent 故障指引
+
+0.21.2 修复 Trellis 收尾的部分提交窗口，并让 Agent 在失败时逐步获得足够但不过量的恢复信息：
+
+- `finish` 在申请授权或修改 Trellis 前先要求 lifecycle 已进入 `checking`。若仍为 `working`，响应只返回唯一 `nextAction`，不会生成 approval，也不会完成原生 task。
+- Trellis-backed closure 持久化 `prepared -> native-completed -> lifecycle-finished -> committed` 事务。进程在任一步中断后，`next`/`resume` 会优先恢复事务；已存在的 task-complete operation 与 receipt 不会被重复执行。
+- 对 0.20.9-0.21.1 形成的旧部分提交，只在 task、component result 和成功 receipt 唯一且一致时认领；有歧义时 fail closed，不猜测历史记录。
+- host verification identity 排除 `.trellis/tasks/*/task.json` 与 task gate 状态，因此任务完成动作不会让刚通过的代码测试过期；任何源码变化仍会使证据失效。
+- `agentGuidance` 渐进披露：待授权时只解释确认边界；首次路径错误只给一个修复动作；恢复或重复失败时再给 `next`、`resume`、verbose status 和停止修改、向用户升级的规则。Agent 不应猜测 `done`、复用 token、编辑 `.hellodev` 或绕过 HelloDev 直调 Trellis。
+
+这些变化解决的是一致性和可恢复性，尚无新的 counterbalanced Fresh-Agent A/B，因此 0.21.2 不声明总体耗时或 token 改善。
+
+## 0.21.1：需求到门禁的 Agent 路径收敛
+
+0.21.1 针对 0.20.9 Fresh-Agent 轨迹中“首次门禁较晚、工具调用更多”的事实，减少 Agent 在规划、Trellis 准备和命令衔接上的探索，但不降低验证或授权要求：
+
+- 精确绑定的需求会被确定性投影为有界 `AC-xxx` criterion 与渐进 gate plan；每个 gate 显示 host command、T-level、scope、映射 criterion 和当前 verification 状态。该投影不执行命令、不写验证证据，也不能证明自然语言语义完整。
+- `do` 与 executable-acceptance CLI 的成功响应统一携带一个 `nextAction`；待审批响应优先保留精确 `resumeCommand`。它只规范化下一步，不执行命令、不消费 approval token。
+- Trellis WorkItem 在 `begin/work` 返回本地只读 preflight，检查复杂任务的 `prd.md`、`design.md`、`implement.md` 与非 seed context manifests；它不能替代 Trellis 原生 validation 或项目质量门禁。
+- capability cache 升级为可比较的 schema v2。只有 `.trellis/spec/context/CONTEXT.md` 单独变化时可自动刷新；AGENTS、workflow、scripts、配置、组件运行时或仓库工具变化仍 fail closed，要求显式 review/refresh。
+- 每次成功 `do` 返回本地 monotonic `operationMetrics`，用于拆分 Core 调用开销；它不持久化，也不是 Agent 总开发时间、模型时间或 token usage。
+
+这些变化有单元、兼容和发行门禁证据，但尚未完成新的 counterbalanced Fresh-Agent A/B，因此 0.21.1 不声明总体 wall-clock 或 token 提升。
+
+## 0.21.0：确定性动态升阶与可执行验收提案
+
+0.21.0 把“失败后的反思”和“需求到测试”的过程变成可审计状态，而不是依赖 Agent 自述：
+
+- 同一 WorkItem、规范化命令和仓库快照出现一次失败后进入 watching；再次尝试未改变输入时进入 strict，`next` 要求先提交根因与替代策略摘要，再允许继续修改。诊断账本只保存摘要哈希，不保存原始诊断文本，不自动派生 subagent。
+- strict 模式建议 T2 验证、减少输出噪声，但不盲目压缩诊断上下文；仓库快照变化后旧升阶自动失效，避免永久锁死。
+- 使用 `--requirements-file` 精确绑定需求的任务，在 `do work` 前必须通过 `acceptance propose` 提交测试或 invariant 提案，并由 `acceptance review` 明确批准。提案绑定 cycle、WorkItem、需求哈希、目标文件基线、命令哈希和仓库快照。
+- 提案审核不会写测试文件、不会运行 host command，也不会生成 verification evidence；实际测试仍由宿主执行并以 `host-asserted` 回执记录。仅使用一句 `--acceptance` 的小任务保持原有快速路径。
+
+这些是正确性与轨迹治理能力，当前没有新的 Direct-vs-HelloDev A/B，因此不宣称 0.21.0 已带来耗时或 token 改善。
+
+## 0.20.9：验收完整性与原子收尾
+
+0.20.9 修复了 0.20.8 fresh-Agent 生产式评测中发现的两个正确性缺口：
+
+- 复杂需求可通过 `do begin --requirements-file <项目相对 UTF-8 文件>` 无损绑定。HelloDev 在 `.hellodev/acceptance-sources.json` 保存有界原文、SHA-256、字节数和行数；源文件缺失、替换、变化、使用绝对路径或符号链接时 fail closed。
+- strict 变更涉及超过十个文件时，Agent 缩短后的 `--acceptance` 摘要不足以收尾，必须提供精确需求来源；小任务和旧项目继续兼容。
+- 已绑定 WorkItem 的 lifecycle 不能通过底层命令直接进入 `finished`，统一由 `hellodev do finish` 执行受控收尾。
+- Trellis 收尾必须依次确认当前原生任务、成功的 `intent/task-complete` receipt、`completed` 状态、WorkItem 绑定的 `.gates/hellodev-quality.json` 和 `linkedPhase=finished`，最后才提交 lifecycle completion。
+
+HelloDev 无权读取宿主的私有聊天记录。宿主或 Agent 必须把权威需求显式写入项目并传给 `--requirements-file`；这是本地隐私边界，不是隐式抓取聊天内容。
+
+## 0.20.8：实测开销修复
+
+0.20.8 针对生产式 A/B 暴露的流程开销和正确性问题进行了修复，但不把未测量的改动宣称为提速：
+
+- Trellis task-set digest 只包含有效、非符号链接的任务目录，`README.md` 和 `.gitkeep` 不再造成 prepare/run 冲突。
+- `do begin` 在实现前返回保守 `closurePlan`；宿主执行其中的 `hostCommand`，变更后 level/scope 仍可收紧。
+- Windows 下有界 npm 启动别名（`npm`、`npm.cmd`、`cmd /c npm`）共享证据身份；出现 shell 元字符时禁止这种等价。
+- 最多 16 个 host check 可通过重复 `--result-json` 或 PowerShell 安全的 `--result` 原子记录，减少逐条 CLI 往返，同时保持 `host-asserted` 且不保存原始输出。
+- 同命令的 `T2/project` 成功只有在 WorkItem 和完整仓库快照不变时，才能覆盖后续 `T1/code` 或 `T1/docs`；精确失败仍会阻止收尾。
+- 当前快照 receipt 会刷新 WorkItem；Trellis completion 将 hash-only 证据合并到 `.gates/hellodev-quality.json`，不再与用户维护的质量文件竞争。
+
+0.20.7 及更早版本的完整演进继续保留在下文。
 
 ## 0.20.7：Intent-first Bootstrap 与 Strong Closure
 
@@ -176,25 +244,6 @@ Agent 已知精确符号时可直接请求 `hellodev_context`；小型已知文�
 - 未变化的失败证据会停止机械重跑，要求先诊断或改变相关输入。
 - `task.json` 整体读取有 64 KiB 上限，解析后只消费 `priority/scope/status`；不输出或持久化 PRD、描述、路径或源码正文。
 - HelloDev 不自动运行宿主测试、不降低确认要求；`do validate` 只证明 Trellis context 合法，交付验收来自当前 AcceptanceContract 的宿主验证证据。
-
-## 三分钟了解
-
-HelloDev 解决的不是“再写一个 Agent”，而是让现有 Agent 在日常开发中有统一、可恢复、可审计的工作方式：
-
-- `onboard`：幂等写入项目级宿主接入；Core 与 bundle 使用同一入口，不改全局配置。
-- `open`：初始化或恢复当前项目。
-- `do begin`：按目标创建或选择任务、绑定 WorkItem、进入 planned，并返回有界 Context Plan。
-- `next`：综合 lifecycle、任务指针、Saga、事务和最近回执，只给一条下一步命令。
-- `do`：按确定性意图路由到 lifecycle、Trellis 或 Nocturne，不靠模型猜命令。
-- `resume`：跨会话恢复，优先处理未完成事务、HostEnvelope、Canary 或 Saga。
-- `.hellodev/`：只保存项目内编排状态、指针、哈希和脱敏回执，不复制记忆正文。
-
-日常使用通常只有：
-
-```text
-用户：用 HelloDev 完成这个任务：……
-Agent：onboard -> open -> do begin -> contextPlan -> next -> do -> 测试 -> do finish
-```
 
 ## 0.19.5：HelloDev 前台，Trellis 后台
 
@@ -315,6 +364,8 @@ FastCtx 是独立第三方项目（[yc-duan/fastctx](https://github.com/yc-duan/
 
 六个 HelloDev MCP 工具的返回值新增 `_hellodevResult`：包含 payload SHA-256、字节数、token 计量来源、预算范围以及结构化 continuation。安装环境提供 `tiktoken/o200k_base` 时记录精确的 HelloDev payload tokens；否则明确标记为保守 UTF-8 字节上界。这只衡量 HelloDev 工具输出，**不代表整轮 Codex/Cursor 对话 token usage**。
 
+</details>
+
 ## 核心优势与使用场景
 
 HelloDev 的优势不是重新实现 Trellis 或 Nocturne，而是在二者之上补齐 Agent 日常开发最容易断裂的编排层：
@@ -368,7 +419,7 @@ py -3.12 -m venv .venv
 .\.venv\Scripts\hellodev.exe --version
 ```
 
-预期版本是 `hellodev 0.20.9`。Python 3.10–3.12 均受源码测试矩阵覆盖。`mcp` extra 用于 Codex/Cursor/Antigravity 的 stdio MCP 接入；只使用 CLI 时可安装 `.`。
+预期版本是 `hellodev 0.21.0`。Python 3.10–3.12 均受源码测试矩阵覆盖。`mcp` extra 用于 Codex/Cursor/Antigravity 的 stdio MCP 接入；只使用 CLI 时可安装 `.`。
 
 在目标项目初始化：
 
@@ -391,19 +442,28 @@ hellodev_status    hellodev_context    hellodev_resume
 从 Release 页面取得与平台匹配的 archive 和 SHA-256，核对后解压到真实目录：
 
 ```powershell
-Get-FileHash .\hellodev-0.20.9-windows-x86_64.zip -Algorithm SHA256
-cd C:\Tools\hellodev-0.20.9-windows-x86_64
+Get-FileHash .\hellodev-0.21.0-windows-x86_64.zip -Algorithm SHA256
+cd C:\Tools\hellodev-0.21.0-windows-x86_64
 .\bin\hellodev.cmd components verify
 .\bin\hellodev.cmd setup
 cd C:\path\to\your-project
-C:\Tools\hellodev-0.20.9-windows-x86_64\bin\hellodev.cmd onboard --host cursor --with-trellis
+C:\Tools\hellodev-0.21.0-windows-x86_64\bin\hellodev.cmd onboard --host cursor --with-trellis
 ```
 
-若对应 0.20.9 bundle 尚未发布，不要把源码仓库当作 bundle，也不要把旧版本 archive 改名冒充。`components verify` 证明本地字节与随包 manifest 一致，不等于数字签名、远程来源证明或法律审查。
+若对应 0.21.0 bundle 尚未发布，不要把源码仓库当作 bundle，也不要把旧版本 archive 改名冒充。`components verify` 证明本地字节与随包 manifest 一致，不等于数字签名、远程来源证明或法律审查。
 
 ## Trellis 与 Nocturne 如何接入
 
 ### Trellis：项目事实与工作流
+
+[Trellis](https://github.com/mindfold-ai/trellis) 负责仓库内可版本化的 workflow、spec、task 和 gate。规范化项目推荐安装；只做轻量任务时不是 HelloDev 的必需依赖。官方中文说明见 [安装与第一个任务](https://docs.trytrellis.app/zh/start/install-and-first-task)。
+
+获得用户明确同意后，可按上游当前公开方式全局安装并核对版本：
+
+```powershell
+npm install -g @mindfoldhq/trellis@latest
+trellis --version
+```
 
 HelloDev 在项目根发现 `.trellis/` 后使用经过验证的意图映射；没有 `.trellis/` 时仍能运行 local lifecycle、Markdown task、context 和治理能力。
 
@@ -414,7 +474,7 @@ hellodev do task list
 hellodev do validate --task <trellis-task-directory>  # context structure only
 ```
 
-源码/Core 不会安装 Trellis。它会复用 PATH 中的 `trellis`/`trellis.cmd` 与项目已有 `.trellis/`；初始化新 `.trellis/` 前必须遵守项目协议并取得用户确认。
+源码/Core 不会自行安装、升级或初始化 Trellis。它会复用 PATH 中的 `trellis`/`trellis.cmd` 与项目已有 `.trellis/`；初始化新 `.trellis/` 前必须遵守项目协议并取得用户确认。安装命令和包名以后续上游文档为准。
 
 0.14.1 起，HelloDev 本地任务、Trellis 活跃任务和 WorkItem 指针是三个不同对象：
 
@@ -432,14 +492,16 @@ hellodev work activate --trellis-task <task-directory-name>
 
 ### Nocturne：可选长期知识
 
-Nocturne 是辅助记忆，不能覆盖仓库事实或授权工具调用。bundle 模式由 `onboard` 显式启用 bundled Nocturne；源码/Core 模式用项目级外部 stdio 配置：
+[Nocturne](https://github.com/Dataojitori/nocturne_memory) 是可选的跨项目长期知识组件。只有确实需要在多个仓库间复用经验时才推荐安装；具体运行时、依赖和启动方式请以其 [官方 README](https://github.com/Dataojitori/nocturne_memory/blob/main/README_EN.md) 为准。HelloDev 不用一个未经上游验证的通用安装命令替代这些步骤。
+
+Nocturne 是辅助记忆，不能覆盖仓库事实或授权工具调用。获得用户明确同意并按上游文档完成安装后，bundle 模式由 `onboard` 显式启用 bundled Nocturne；源码/Core 模式用项目级外部 stdio 配置：
 
 ```powershell
 hellodev nocturne configure --command C:\absolute\path\to\nocturne.exe
 hellodev nocturne status
 ```
 
-若实际启动需要 Python 和脚本，可重复传入 `--arg` 并用 `--cwd` 指定工作目录。Agent 应先检查本机实际安装方式，不能猜测路径。未配置时，`recall` 优雅降级为 local-only。
+若实际启动需要 Python 和脚本，可重复传入 `--arg` 并用 `--cwd` 指定工作目录。Agent 应先检查本机实际安装方式，不能猜测路径，也不能静默安装或修改用户级配置。未配置时，`recall` 优雅降级为 local-only。
 
 ## 证据门控知识生命周期
 
@@ -612,10 +674,8 @@ python -m build
 
 `fast` 用于日常相关回归；`full`、wheel smoke、版本/文档/manifest 对齐是发布门禁。CI 不自动发布；PyPI workflow 仅响应受保护的 GitHub Release `published` 事件。
 
-## 版本说明
+## 更早版本摘要
 
-- **0.17.0**：统一 `begin` 任务启动、自动有界 Context Plan、单一 `currentTask` 投影、Core/bundle 一致 onboarding 与 Control Center 2.3；完整保留 0.16.0 命令、状态、MCP、授权、Saga/WAL/policy 和上游边界。
-- **0.16.0**：原生只读 Context Plane、任务驱动 query、预算前置组合、路径/行号/hash 来源、快照绑定 cursor、metrics-only 状态与 Control Center 2.2；FastCtx 降为非必需 optional accelerator。
 - **0.15.0**：可选仓库工具 Provider、只读 FastCtx 发现、Provider-aware status/resume/doctor/audit、MCP payload token/哈希计量与结构化 continuation，以及 Control Center 2.1；native 始终可降级，FastCtx 不自动安装、注册或授权。
 - **0.14.4**：Control Center 2.0 将 NOW、严格恢复优先级、可筛选 LessonProposal、历史 Recall 回执、环境兼容性与效率摘要收敛为只读交互页面；新增 ETag/304、短时请求缓存、隐藏页暂停轮询和有界分页，不增加网页执行面。
 - **0.14.3**：证据门控 LessonProposal 审核生命周期、72 小时 TTL、新证据重激活、聚合 receipt、`next` 审核提示，以及去重/限长/来源标记/指令隔离的 Nocturne recall 投影；不增加记忆数据库或自动外部写入。
@@ -637,6 +697,7 @@ python -m build
 
 ## 文档
 
+- [架构与迭代解析](docs/HELLODEV_ARCHITECTURE_EVOLUTION_ZH.md) — 0.1.0 至 0.21.3 的分层架构、实现原理与测试作用
 - [Quick Start](docs/QUICK_START.md) — Agent-first 安装、接入、日常使用与排错
 - [Release checklist](docs/RELEASE.md) — 版本门禁、wheel/bundle 与发布边界
 - [Why HelloDev](docs/WHY_HELLODEV.md) — 项目定位与取舍

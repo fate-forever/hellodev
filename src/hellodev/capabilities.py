@@ -63,12 +63,12 @@ def _script_markers(root: Path) -> dict[str, Any]:
     return {"state": "present", "files": files}
 
 
-def fingerprint(root: Path) -> str:
+def _fingerprint_material(root: Path) -> dict[str, Any]:
     paths = ProjectPaths(root)
     load_config(root)
     config = _marker(paths.config_file)
     trellis_dir = root / ".trellis"
-    payload = {
+    return {
         "config": config,
         "agents": _marker(root / "AGENTS.md"),
         "trellis": _marker(trellis_dir),
@@ -78,7 +78,14 @@ def fingerprint(root: Path) -> str:
         "componentRuntime": components.runtime_fingerprint(),
         "repositoryTools": repository_tools.fingerprint_material(),
     }
-    return hashlib.sha256(json.dumps(payload, sort_keys=True).encode("utf-8")).hexdigest()
+
+
+def _material_fingerprint(material: dict[str, Any]) -> str:
+    return hashlib.sha256(json.dumps(material, sort_keys=True).encode("utf-8")).hexdigest()
+
+
+def fingerprint(root: Path) -> str:
+    return _material_fingerprint(_fingerprint_material(root))
 
 
 def _load(root: Path) -> dict[str, Any] | None:
@@ -91,7 +98,7 @@ def _load(root: Path) -> dict[str, Any] | None:
         cache = json.loads(path.read_text(encoding="utf-8"))
     except (OSError, json.JSONDecodeError) as error:
         raise ProjectError(f"invalid HelloDev capability cache: {error}") from error
-    if not isinstance(cache, dict) or cache.get("schemaVersion") != 1:
+    if not isinstance(cache, dict) or cache.get("schemaVersion") not in {1, 2}:
         raise ProjectError("invalid HelloDev capability cache schema")
     return cache
 
@@ -113,13 +120,58 @@ def status(root: Path) -> dict[str, Any]:
 
 
 def refresh(root: Path) -> dict[str, Any]:
-    current = fingerprint(root)
+    material = _fingerprint_material(root)
+    current = _material_fingerprint(material)
     capabilities = {
         "trellis": trellis.discover(root),
         "nocturne": nocturne.status(root),
         "repositoryTools": repository_tools.discover(),
         "contextPlane": context_runtime.status(root),
     }
-    cache = {"schemaVersion": 1, "fingerprint": current, "generatedAt": utc_now(), "capabilities": capabilities}
+    cache = {
+        "schemaVersion": 2,
+        "fingerprint": current,
+        "fingerprintMaterial": material,
+        "generatedAt": utc_now(),
+        "capabilities": capabilities,
+    }
     write_json(ProjectPaths(root).capabilities_file, cache)
     return {"state": "fresh", "fingerprint": current, "generatedAt": cache["generatedAt"], "capabilities": capabilities}
+
+
+def refresh_project_context(root: Path) -> dict[str, Any]:
+    """Refresh only isolated CONTEXT.md drift; every authority identity stays fixed."""
+
+    cache = _load(root)
+    if cache is None or cache.get("schemaVersion") != 2:
+        return {"state": "not-refreshed", "reasonCode": "capability-material-unavailable"}
+    previous = cache.get("fingerprintMaterial")
+    if not isinstance(previous, dict):
+        return {"state": "not-refreshed", "reasonCode": "capability-material-unavailable"}
+    current = _fingerprint_material(root)
+    changed = sorted(key for key in current if current.get(key) != previous.get(key))
+    if changed != ["context"]:
+        return {
+            "state": "not-refreshed",
+            "reasonCode": "capability-drift-requires-explicit-review",
+            "changedMaterial": changed,
+        }
+    current_fingerprint = _material_fingerprint(current)
+    updated = {
+        **cache,
+        "schemaVersion": 2,
+        "fingerprint": current_fingerprint,
+        "fingerprintMaterial": current,
+        "generatedAt": utc_now(),
+    }
+    write_json(ProjectPaths(root).capabilities_file, updated)
+    return {
+        "state": "fresh",
+        "reasonCode": "project-context-only-auto-refresh",
+        "fingerprint": current_fingerprint,
+        "generatedAt": updated["generatedAt"],
+        "capabilities": updated.get("capabilities"),
+        "changedMaterial": changed,
+        "componentIdentityRevalidated": True,
+        "unsafeDriftAccepted": False,
+    }

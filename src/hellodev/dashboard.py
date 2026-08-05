@@ -5,7 +5,7 @@ from http import HTTPStatus
 from http.cookies import SimpleCookie
 from http.server import BaseHTTPRequestHandler,ThreadingHTTPServer
 from pathlib import Path
-from . import __version__,acceptance,capabilities,changesets,checkpoints,components,context_runtime,contracts,drift,efficiency_cycles,experience,facade,gates,host_bridge,integrations,lifecycle,optimization,policy_evolution,receipts,repository_tools,resume,sagas,transactions,trellis_execution,verification,workflow_projection
+from . import __version__,acceptance,capabilities,changesets,checkpoints,components,context_runtime,contracts,drift,dynamic_escalation,efficiency_cycles,experience,facade,gates,host_bridge,integrations,lifecycle,optimization,policy_evolution,receipts,repository_tools,resume,sagas,transactions,trellis_execution,verification,workflow_projection
 from .governance import usage_status
 from .command_rendering import rewrite_commands
 from .project import ProjectError,ProjectPaths,list_tasks,load_config,utc_now,write_json
@@ -395,7 +395,9 @@ def snapshot(root:Path,instance:str,started:str):
  ),
  "coverage":value["acceptance"].get("coverage",{"satisfied":0,"required":0,"ratio":1.0}),
   "quality":value["acceptance"].get("qualityCoverage",{"mode":"lite","state":"unavailable","satisfied":False,"blockerCount":0}),
-  "guided":value["acceptance"].get("guidedAcceptance",{"state":"unavailable","mode":"lite","satisfied":False,"blockers":[],"overrideForwarding":{"state":"unavailable","issueCount":0,"parseErrorCount":0,"baselineState":"unavailable"},"verificationQuality":{"sourceTrust":"unavailable","distinctCommandCount":0,"distinctSnapshotCount":0,"repeatedCommandCount":0}}),
+ "guided":value["acceptance"].get("guidedAcceptance",{"state":"unavailable","mode":"lite","satisfied":False,"blockers":[],"overrideForwarding":{"state":"unavailable","issueCount":0,"parseErrorCount":0,"baselineState":"unavailable"},"verificationQuality":{"sourceTrust":"unavailable","distinctCommandCount":0,"distinctSnapshotCount":0,"repeatedCommandCount":0}}),
+ "executableAcceptance":(lambda item:{"state":item.get("state","unavailable"),"required":bool(item.get("required")),"satisfied":bool(item.get("satisfied")),"proposalState":item.get("proposal",{}).get("state") if isinstance(item.get("proposal"),dict) else None})(value["acceptance"].get("executableAcceptance",{})),
+ "dynamicEscalation":(lambda item:{"state":item.get("state","inactive"),"active":bool(item.get("active")),"failureCount":item.get("failureCount",0),"reasonCodes":item.get("reasonCodes",[]),"policy":item.get("policy",{})})(dynamic_escalation.status(root)),
   "lifecycleDrift":value["gateProjection"].get("lifecycleConsistency",{"state":"unavailable","reasonCode":"unavailable"}),
  "hostTest":value["acceptance"].get("hostTest",{"state":"unavailable","satisfied":False}),
   "verificationPlan":{

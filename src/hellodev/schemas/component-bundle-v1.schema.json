@@ -7,7 +7,7 @@
   "required": ["schemaVersion", "distributionVersion", "target", "controlledRoots", "distributionFiles", "components"],
   "properties": {
     "schemaVersion": {"const": 1},
-    "distributionVersion": {"const": "0.20.9"},
+    "distributionVersion": {"const": "0.21.3"},
     "target": {
       "type": "object",
       "additionalProperties": false,

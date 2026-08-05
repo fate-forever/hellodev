@@ -1,0 +1,4 @@
+interface:
+  display_name: "HelloDev Workflow"
+  short_description: "Follow HelloDev's governed coding workflow"
+  default_prompt: "Use $hellodev to complete this coding task through the governed project workflow."

@@ -1,7 +1,40 @@
 # HelloDev Core codebase map
 
-Last refreshed: 2026-07-31
-Scope: HelloDev 0.20.9 Acceptance Integrity and Atomic Closure
+Last refreshed: 2026-08-04
+Scope: HelloDev 0.21.3 project-discoverable Agent Skill
+
+## 0.21.3 implementation map
+
+- `skill_bundle/hellodev/SKILL.md` teaches the short governed path; `references/recovery.md` is loaded only after repeated identical failure; `agents/openai.yaml` supplies UI metadata.
+- `agent_skill.py` owns bundled-resource validation, host-specific project destinations, conflict/reparse preflight, atomic writes and hash-based managed upgrades.
+- `onboarding.py` preflights the Skill before any project mutation and installs it after the existing host plan. Its result exposes bounded Skill state without performing a global install.
+- `pyproject.toml` includes Skill markdown/YAML as wheel package data. `test_v213_project_skill.py` covers content, Cursor/Codex/Antigravity destinations, idempotence, managed upgrade, conflict refusal and `host=none`.
+
+## 0.21.2 implementation map
+
+- `closure_transactions.py`: bounded closure journal, native-completion recovery and unambiguous legacy adoption.
+- `application.py`: checking-before-mutation finish precondition, transaction state advancement and bare-verify validation.
+- `changesets.py`, `acceptance.py`: code-verification identity excludes mutable Trellis task/gate state; context evidence follows a verified completion digest transition.
+- `resume.py`, `response_chain.py`: closure recovery takes routing priority and confirmation/repair/diagnostic guidance is disclosed only when needed.
+- `onboarding.py`, `mcp_gateway.py`: project and MCP instructions forbid command guessing, token reuse, state editing and native bypass; repeated reason codes escalate to the user.
+
+## 0.21.1 implementation map
+
+- `acceptance_planning.py` projects an integrity-checked exact requirements source into bounded criterion summaries and the existing manifest-first verification plan. It is read-only and creates no evidence.
+- `trellis_preflight.py` inspects safe local planning artifacts and context manifests for the bound Trellis task. It rejects links, traversal and malformed entries and never satisfies native or quality gates.
+- `response_chain.py` attaches one normalized non-executing `nextAction`, preferring an exact approval resume command over generic routing.
+- `capabilities.py` stores schema-v2 fingerprint material and permits auto-refresh only for isolated project-context drift; all authority/runtime/config drift remains explicit.
+- `application.py` adds gate/preflight projections, constrained refresh and non-persistent monotonic operation timing to successful `do` responses. `cli.py` chains executable-acceptance responses without adding an MCP tool.
+- `acceptance.py` exposes integrity-revalidated exact requirements text. `trellis_execution.py` retains package-script order across test, integration, typecheck, build and e2e gates.
+
+## 0.21.0 implementation map
+
+- `executable_acceptance.py` owns bounded proposal/review state. Proposals bind cycle, WorkItem, requirements digest, target baseline, canonical command digest and repository snapshot; review never writes tests or creates verification evidence.
+- `dynamic_escalation.py` owns hash-only diagnostic escalation state derived from current WorkItem, canonical command digest, repository snapshot, verification failures/retries and invalid finish attempts.
+- `resume.py` exposes proposal/review and strict diagnosis as the unique next action before the ordinary lifecycle path.
+- `application.py` gates exact-requirements implementation on proposal approval and projects host verification outcomes into escalation events.
+- `verification.py` records an unchanged retry signal when an already-failed identity is planned again. Host execution remains external and host-asserted.
+- `cli.py` exposes `acceptance status|propose|review` and `escalation status|diagnose`; the six MCP tool registry remains unchanged.
 
 ## 0.20.9 implementation map
 

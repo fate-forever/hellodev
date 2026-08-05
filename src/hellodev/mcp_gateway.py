@@ -208,7 +208,9 @@ def create_server(root: str | Path) -> Any:
             "HelloDev resume, or write approval. Keep task, lifecycle, validation and recovery behind HelloDev; "
             "do not call Trellis CLI, task.py, or trellis-continue during the daily flow. Direct Trellis is an "
             "advanced escape hatch only after HelloDev reports an unsupported operation. HelloDev Context Plane provides native repository context even "
-            "when no external provider is installed."
+            "when no external provider is installed. On a first failure execute only nextAction; after an interruption use resume. "
+            "If the same reasonCode persists twice, stop mutating state, inspect next/resume/verbose status, show the bounded diagnostics "
+            "to the user, and ask for direction instead of guessing commands, retrying finish, editing state, or bypassing through Trellis."
         ),
         json_response=True,
     )

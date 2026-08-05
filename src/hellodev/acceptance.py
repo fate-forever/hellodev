@@ -307,6 +307,25 @@ def current(root: Path) -> dict[str, Any] | None:
     )
 
 
+def requirements_text(root: Path) -> str:
+    """Return the current exact requirements after revalidating every binding."""
+
+    contract = current(root)
+    if contract is None or contract["requirementsSource"]["state"] != "bound":
+        raise ProjectError("current AcceptanceContract has no exact requirements source")
+    integrity = _requirements_integrity(root, contract, strict=True)
+    if not integrity["satisfied"]:
+        raise ProjectError(f"exact requirements source is not current: {integrity['state']}")
+    source = contract["requirementsSource"]
+    persisted = next(
+        (item for item in _source_store(root)["sources"] if item["sha256"] == source["sha256"]),
+        None,
+    )
+    if persisted is None:
+        raise ProjectError("exact requirements source is missing from the bound source store")
+    return persisted["text"]
+
+
 def _context_evidence_store(root: Path) -> dict[str, Any]:
     path = ProjectPaths(root).acceptance_evidence_file
     if not path.exists():
@@ -509,16 +528,22 @@ def _trellis_context_gate(root: Path) -> dict[str, Any]:
     if not isinstance(record, dict):
         raise ProjectError("invalid Trellis task record for acceptance evidence")
     current_digest = canonical_sha256(record)
+    context_records = _context_evidence_store(root)["records"]
     recorded = next(
         (
             item
-            for item in reversed(_context_evidence_store(root)["records"])
+            for item in reversed(context_records)
             if item["task"] == task and item["taskDigest"] == current_digest
         ),
         None,
     )
+    validated_before_completion = next(
+        (item for item in reversed(context_records) if item["task"] == task and item["valid"] is True),
+        None,
+    )
     ledger_path = ProjectPaths(root).state_dir / "component-operations.json"
     matching: dict[str, Any] | None = None
+    completion_transition: dict[str, Any] | None = None
     if ledger_path.exists():
         if ledger_path.is_symlink() or not ledger_path.is_file() or ledger_path.stat().st_size > MAX_COMPONENT_LEDGER_BYTES:
             raise ProjectError("HelloDev component operation ledger is unsafe")
@@ -533,6 +558,19 @@ def _trellis_context_gate(root: Path) -> dict[str, Any]:
             result = operation.get("result") if isinstance(operation, dict) else None
             data = result.get("data") if isinstance(result, dict) else None
             result_task = data.get("task") if isinstance(data, dict) else None
+            if (
+                completion_transition is None
+                and isinstance(result, dict)
+                and result.get("ok") is True
+                and result.get("action") == "task-complete"
+                and isinstance(result_task, dict)
+                and result_task.get("id") == task
+                and result_task.get("status") == "completed"
+                and result_task.get("digest") == current_digest
+                and validated_before_completion is not None
+                and data.get("previousDigest") == validated_before_completion["taskDigest"]
+            ):
+                completion_transition = result
             if (
                 isinstance(result, dict)
                 and result.get("ok") is True
@@ -550,6 +588,11 @@ def _trellis_context_gate(root: Path) -> dict[str, Any]:
         missing = []
         operation_id = None
         source = recorded["source"]
+    elif completion_transition is not None:
+        state, satisfied = "satisfied-by-completion-transition", True
+        missing = []
+        operation_id = completion_transition.get("operationId")
+        source = "component-protocol-completion-transition"
     elif matching is None:
         state, satisfied = "validation-required", False
         missing: list[str] = []
@@ -580,7 +623,10 @@ def _trellis_context_gate(root: Path) -> dict[str, Any]:
 def evidence(root: Path, *, include_finish: bool = True) -> dict[str, Any]:
     """Unify acceptance-related evidence without executing a host or Trellis command."""
     root = resolve_root(root)
+    from . import executable_acceptance
+
     host_test = status(root)
+    executable = executable_acceptance.status(root)
     context_gate = _trellis_context_gate(root)
     guided = guided_acceptance.evaluate(root, host_test["contract"])
     requirements = (
@@ -611,8 +657,10 @@ def evidence(root: Path, *, include_finish: bool = True) -> dict[str, Any]:
     context_satisfied = 1 if context_required and context_gate["satisfied"] else 0
     requirements_required = 1 if required and requirements["required"] else 0
     requirements_satisfied = 1 if requirements_required and requirements["satisfied"] else 0
-    satisfied_count = host_satisfied + context_satisfied + requirements_satisfied
-    required_count = host_required + context_required + requirements_required
+    executable_required = 1 if required and executable["required"] else 0
+    executable_satisfied = 1 if executable_required and executable["satisfied"] else 0
+    satisfied_count = host_satisfied + context_satisfied + requirements_satisfied + executable_satisfied
+    required_count = host_required + context_required + requirements_required + executable_required
     evidence_satisfied = required and required_count > 0 and satisfied_count == required_count
     satisfied = evidence_satisfied and guided["satisfied"]
     if not required:
@@ -621,6 +669,9 @@ def evidence(root: Path, *, include_finish: bool = True) -> dict[str, Any]:
     elif not requirements["satisfied"]:
         state = "requirements-" + requirements["state"]
         next_command = requirements["next"]
+    elif executable["required"] and not executable["satisfied"]:
+        state = "executable-acceptance-" + executable["state"]
+        next_command = executable["next"]
     elif not guided["satisfied"]:
         state = "guided-" + guided["state"]
         next_command = guided["next"]
@@ -644,6 +695,7 @@ def evidence(root: Path, *, include_finish: bool = True) -> dict[str, Any]:
         "hostTest": host_test,
         "trellisContextGate": context_gate,
         "guidedAcceptance": guided,
+        "executableAcceptance": executable,
         "coverage": {
             "satisfied": satisfied_count,
             "required": required_count,

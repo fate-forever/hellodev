@@ -10,7 +10,7 @@ from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any, Literal, cast
 
-from . import changesets, contracts
+from . import changesets, contracts, dynamic_escalation
 from .command_rendering import command_line
 from .project import ProjectError, ProjectPaths, load_config, utc_now, write_json
 from .state_lock import locked_state
@@ -279,6 +279,7 @@ def plan(root: Path, level: str, command: str, scope: str | None = None) -> dict
                     "reasonCode": "same-command-and-scope-snapshot-succeeded", "reusedRecordId": exact["id"],
                     "estimatedAvoidedDurationMs": exact["durationMs"]}
         if exact is not None:
+            dynamic_escalation.record(root, "unchanged-retry", identity["commandSha256"], "unchanged-verification-retry")
             return {**base, "state": "blocked-unchanged-failure", "runRequired": False,
                     "reasonCode": "same-command-and-scope-snapshot-already-failed", "failedRecordId": exact["id"],
                     "next": "Change files in the verification scope or diagnose the environment before retrying."}

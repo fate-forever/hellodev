@@ -169,10 +169,17 @@ def verification_plan(root: Path, profile: str = "standard", acceptance_text: st
         scripts, manager = package
         steps = [{"command": f"{manager} test", "level": level, "scope": scope, "kind": "test"}]
         criterion = (acceptance_text or "").lower()
-        requests_typecheck = any(term in criterion for term in ("typecheck", "type check", "tsc"))
-        if requests_typecheck and "typecheck" in scripts:
-            command = "yarn typecheck" if manager == "yarn" else f"{manager} run typecheck"
-            steps.append({"command": command, "level": level, "scope": scope, "kind": "typecheck"})
+        requested = (
+            ("test:integration", "integration", ("test:integration", "integration test", "integration suite", "集成测试")),
+            ("typecheck", "typecheck", ("typecheck", "type check", "tsc", "类型检查")),
+            ("build", "build", ("build", "production build", "构建")),
+            ("test:e2e", "e2e", ("test:e2e", "e2e", "end-to-end", "端到端")),
+        )
+        for script, kind, terms in requested:
+            if script not in scripts or not any(term in criterion for term in terms):
+                continue
+            command = f"{manager} {script}" if manager == "yarn" else f"{manager} run {script}"
+            steps.append({"command": command, "level": level, "scope": scope, "kind": kind})
         return {"state": "ready", "steps": steps, "discovery": "package-manifest-first"}
     if python:
         return {"state": "ready", "steps": [{"command": "python -m pytest -q", "level": level, "scope": scope, "kind": "test"}], "discovery": "python-project-evidence"}

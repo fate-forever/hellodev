@@ -5,7 +5,7 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Any
 
-from . import acceptance, capabilities, changesets, contracts, facade, gates, lifecycle, repository_tools, sagas, trellis_execution, verification, workflow_projection
+from . import acceptance, capabilities, changesets, closure_transactions, contracts, dynamic_escalation, executable_acceptance, facade, gates, lifecycle, repository_tools, sagas, trellis_execution, verification, workflow_projection
 from .command_rendering import command_line
 from .project import ProjectError, project_initialized
 
@@ -115,6 +115,23 @@ def next_decision(root: Path) -> dict[str, Any]:
             "suggestedLevel": "L0",
             "executionPerformed": False,
         }
+    closure = closure_transactions.status(root)
+    if closure["recoveryRequired"]:
+        phase = lifecycle.status(root)["phase"]
+        arguments = ("do", "check") if phase == "working" and closure["state"] == "native-completed" else ("do", "finish")
+        return {
+            "schemaVersion": 1,
+            "command": command_line(root, *arguments),
+            "reason": (
+                "Trellis completion is already recorded; reconcile the managed lifecycle without repeating the external write."
+                if closure["state"] == "native-completed"
+                else "A managed closure transaction is incomplete and must resume before ordinary work."
+            ),
+            "reasonCode": "closure-transaction-recovery-required",
+            "suggestedLevel": "L2",
+            "closureRecovery": closure,
+            "executionPerformed": False,
+        }
     pending_envelopes = host_bridge.pending_envelopes(root)
     if pending_envelopes:
         pending = pending_envelopes[0]
@@ -169,6 +186,20 @@ def next_decision(root: Path) -> dict[str, Any]:
         contract = acceptance.current(root)
         if work_item is None or contract is None:
             return _begin_decision(root, work_item)
+    escalation_action = dynamic_escalation.next_action(root)
+    if escalation_action is not None:
+        return escalation_action
+    executable = executable_acceptance.status(root)
+    if lifecycle_state["phase"] == "planned" and executable["required"] and not executable["satisfied"]:
+        return {
+            "schemaVersion": 1,
+            "command": executable["next"],
+            "reason": "The exact requirements source requires a reviewable executable acceptance proposal before implementation.",
+            "reasonCode": "executable-acceptance-" + executable["state"],
+            "suggestedLevel": "L1",
+            "executableAcceptance": executable,
+            "executionPerformed": False,
+        }
     if lifecycle_state["phase"] == "finished":
         trellis_tasks = contracts.list_trellis_tasks(root)
         if len(trellis_tasks) == 1:

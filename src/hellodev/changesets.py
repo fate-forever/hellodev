@@ -52,6 +52,34 @@ def _entries(snapshot: RepositorySnapshot) -> list[dict[str, str]]:
     )
 
 
+def _verification_entries(snapshot: RepositorySnapshot) -> list[dict[str, str]]:
+    """Exclude mutable orchestration state from host-code evidence identity."""
+
+    excluded = []
+    for item in snapshot.files:
+        parts = item.path.replace("\\", "/").lower().strip("/").split("/")
+        trellis_task_state = (
+            len(parts) >= 4
+            and parts[0] == ".trellis"
+            and parts[1] == "tasks"
+            and (parts[-1] == "task.json" or ".gates" in parts[3:])
+        )
+        if not trellis_task_state:
+            excluded.append(item)
+    return _entries(
+        RepositorySnapshot(
+            snapshot_id=snapshot.snapshot_id,
+            metadata_fingerprint=snapshot.metadata_fingerprint,
+            files=tuple(excluded),
+            scanned_bytes=snapshot.scanned_bytes,
+            skipped=snapshot.skipped,
+            state=snapshot.state,
+            markers=snapshot.markers,
+            cache_hit=snapshot.cache_hit,
+        )
+    )
+
+
 def _snapshot_digest(entries: list[dict[str, str]], scope: Scope) -> str:
     selected = entries if scope == "project" else [item for item in entries if item["scope"] == scope]
     payload = [{"pathSha256": item["pathSha256"], "contentSha256": item["contentSha256"]} for item in selected]
@@ -75,12 +103,14 @@ def scope_identity(root: Path, scope: str) -> dict[str, Any]:
     snapshot = repository_snapshot(root)
     if snapshot.state != "complete":
         raise ProjectError("repository context is bounded; refusing scoped verification reuse")
-    value = identities(snapshot)
+    entries = _verification_entries(snapshot)
+    repository_identity = _snapshot_digest(entries, "project")
     return {
         "scope": selected,
-        "scopeSnapshot": value["scopeSnapshots"][selected],
-        "repositorySnapshot": value["repositorySnapshot"],
-        "scanState": value["scanState"],
+        "scopeSnapshot": _snapshot_digest(entries, cast(Scope, selected)),
+        "repositorySnapshot": repository_identity,
+        "scanState": snapshot.state,
+        "identityClass": "code-verification-v2",
     }
 
 

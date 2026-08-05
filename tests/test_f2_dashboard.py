@@ -109,7 +109,7 @@ class F2DashboardTests(unittest.TestCase):
             self.assertEqual(value["recallInspector"]["history"][0]["receiptId"], recall_receipt["id"])
             self.assertFalse(value["recallInspector"]["rawResultExposed"])
             self.assertFalse(value["recallInspector"]["resultDetailsPersisted"])
-            self.assertEqual(value["diagnostics"]["core"]["version"], "0.20.9")
+            self.assertEqual(value["diagnostics"]["core"]["version"], "0.21.3")
             self.assertNotIn(private_lesson, json.dumps(value, ensure_ascii=False))
             self.assertNotIn("operator-only evidence", json.dumps(value, ensure_ascii=False))
             self.assertEqual(self._state_files(root), before)
@@ -515,7 +515,7 @@ class F2DashboardTests(unittest.TestCase):
         self.assertNotIn("<input", markup)
         self.assertIn("Canary Evaluation v2", markup)
         self.assertIn("Portable checkpoint", markup)
-        self.assertIn("HELLODEV 0.20.9", markup)
+        self.assertIn("HELLODEV 0.21.3", markup)
 
 
     def test_assets_are_interactive_bounded_and_copy_only(self) -> None:
@@ -538,7 +538,7 @@ class F2DashboardTests(unittest.TestCase):
         self.assertIn("Recall Inspector", markup)
         self.assertIn("严格优先级恢复", markup)
         self.assertIn("20-turn ReflectionCycle", markup)
-        self.assertIn("HELLODEV 0.20.9", markup)
+        self.assertIn("HELLODEV 0.21.3", markup)
         for forbidden in (
             "hellodev host complete", "hellodev policy stage", "hellodev policy canary",
             "hellodev policy commit", "hellodev policy revert",
